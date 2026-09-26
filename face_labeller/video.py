@@ -25,6 +25,7 @@ from face_labeller.evidence import MatchLogger
 from face_labeller.perception import model_load_seconds, process_batch_with_fallback
 from face_labeller.recognition import match, unknown_matches
 from face_labeller.rendering import draw
+from face_labeller.tracking import Tracker
 
 
 PROGRESS_EVERY_FRAMES = 100  # M3 reporting interval; does not affect output.
@@ -186,13 +187,20 @@ def process_video(
         written_frames = 0
         last_faces: list[Face] = []
         last_matches: list[Match] = []
+        last_display_matches: list[Match] = []
         label_counts: Counter[str] = Counter()
+        tracker = (
+            Tracker(iou_min=cfg.iou_min, track_ttl=cfg.track_ttl)
+            if cfg.smooth
+            else None
+        )
         pending_frames: list[tuple[int, np.ndarray]] = []
         pending_missing: list[tuple[int, np.ndarray]] = []
         max_pending_frames = max(1, cfg.batch_size * cfg.stride)
 
         def flush_pending() -> None:
             nonlocal perception_seconds, written_frames, last_faces, last_matches
+            nonlocal last_display_matches
             if not pending_frames:
                 return
             if pending_missing:
@@ -215,17 +223,32 @@ def process_video(
                         if gallery is not None
                         else unknown_matches(last_faces)
                     )
-                rendered = draw(frame, last_faces, last_matches, cfg)
-                for face_idx, (face, assignment) in enumerate(
-                    zip(last_faces, last_matches, strict=True)
+                    last_display_matches = (
+                        [
+                            displayed_match
+                            for _face, displayed_match, _track_id in tracker.update(
+                                frame_idx, last_faces, last_matches
+                            )
+                        ]
+                        if tracker is not None
+                        else last_matches
+                    )
+                rendered = draw(frame, last_faces, last_display_matches, cfg)
+                for face_idx, (face, raw_assignment, displayed_assignment) in enumerate(
+                    zip(
+                        last_faces,
+                        last_matches,
+                        last_display_matches,
+                        strict=True,
+                    )
                 ):
-                    label_counts[assignment.name or "Unknown"] += 1
+                    label_counts[displayed_assignment.name or "Unknown"] += 1
                     if logger is not None:
                         logger.log(
                             frame_idx,
                             face_idx,
                             face,
-                            assignment,
+                            raw_assignment,
                             cfg.threshold,
                             frame=frame,
                         )

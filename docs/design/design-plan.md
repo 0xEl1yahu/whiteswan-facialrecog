@@ -112,10 +112,13 @@ Data efficiency (compute once, reuse everywhere):
 
 Model facts that constrain the design (verified in deepface 0.0.101 / retina-face 0.0.18
 source, 2026-09-26):
-- RetinaFace internally rescales every frame so the short side is 1024 px (long side capped
-  at 1980), and upscaling is allowed (retinaface/commons/preprocess.py). Per-frame cost is
-  roughly constant whatever the input resolution. Therefore do NOT downscale frames for
-  speed. Stride is the speed lever.
+- RetinaFace internally rescales detector input to a 1024 px short side (long side capped
+  at 1980). Naively downscaling the unpadded frame is rejected because it changed small-face
+  recall. The owner-approved M4 path instead reproduces DeepFace's exact padded resize and
+  removes only grid-aligned black margin while retaining a 32 px detector halo. For 1080p
+  this changes the detector tensor from 1820x1024 to 988x576 without changing the resized
+  content pixels. See
+  `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`.
 - DeepFace calls RetinaFace with threshold=0.9, hard-coded and NOT configurable through any
   represent()/extract_faces() argument (models/face_detection/RetinaFace.py:48). Real
   detections have face_confidence >= 0.9. face_confidence is rounded to 2 dp.
@@ -196,6 +199,7 @@ Module ownership is:
 - `face_labeller/cache.py`: shared cache identity helpers and `FaceCache` persistence.
 - `face_labeller/gallery.py`: gallery discovery, cache reconciliation, pins, and diagnostics.
 - `face_labeller/recognition.py`: pure cosine distance and matching.
+- `face_labeller/tracking.py`: pure IoU and optional stateful association/name voting.
 - `face_labeller/rendering.py`: pure deterministic drawing.
 - `face_labeller/evidence.py`: CSV logging and optional debug crops.
 - `face_labeller/video.py`: video inspection, frame planning, and streaming execution.
@@ -207,21 +211,20 @@ lower-level modules never call back into `core.py`.
 `load_config(args) -> Config`
   Merge CLI args with defaults (section 7). Record the source of each default in comments.
 
-`build_models(cfg) -> None`
-  Lazily call DeepFace.build_model("Facenet512") once, immediately before the first
-  uncached gallery image or frame needs embedding. A fully cached replay must not load
-  Facenet512. Log model load time separately from processing time when loading is needed.
+`build_detector_model() -> Any` and `build_models(cfg) -> None`
+  Lazily build resident RetinaFace and Facenet512 models immediately before uncached work
+  needs them. Track their load times separately and expose their sum to the video summary.
+  A fully compatible cache replay imports/builds neither model.
 
 `embed_faces(frames: list[np.ndarray], cfg) -> list[list[Face]]`
-  Call DeepFace.represent(img_path=frames, model_name="Facenet512",
-  detector_backend="retinaface", enforce_detection=False, align=True,
-  normalization=cfg.normalization, max_faces=cfg.max_faces, l2_normalize=True).
-  Normalise the output to one list[Face] per input frame, whatever the batch size
-  (including the flat-list shape returned for a batch of 1).
-  Drop results with face_confidence == 0. Drop None landmarks. Assert unit-norm embeddings.
-  Clip boxes to frame bounds. If a batched represent() call raises, propagate the error to
-  the caller; the caller retries each frame from that batch individually, caches recovered
-  frames as ok, and marks only frames that still raise as failed.
+  Reproduce DeepFace's padded RetinaFace resize, crop only grid-aligned black margin with a
+  32 px halo, and call the resident RetinaFace model at threshold 0.9 without upscaling.
+  Restore boxes/landmarks to full-frame coordinates and align each face locally on the
+  original frame through DeepFace's `extract_face`. Flatten all aligned crops in the frame
+  batch into one `DeepFace.represent` call with Facenet512 and
+  `detector_backend="skip"`; reassemble one ordered list per input frame. Validate unit
+  512-dimensional float32 embeddings. If no faces exist, skip Facenet512. Any failure
+  propagates to the existing per-frame fallback and retry/cache semantics.
 
 `load_gallery(ref_dir: Path, cfg) -> Gallery`
   Structure: ref_dir/<Character Name>/*.{jpg,jpeg,png}. The folder name is the label.
@@ -249,8 +252,9 @@ lower-level modules never call back into `core.py`.
   A per-frame map: frame_idx -> (status, faces). Faces hold box, landmarks, det_conf,
   embedding.
   Key (everything upstream of match, and nothing downstream):
-    sha256 of the input video + detector + model + normalization + align + max_faces +
-    expand_percentage + installed versions of deepface, retina-face, tensorflow, opencv.
+    schema 2 + sha256 of the input video + detector + model + normalization + align +
+    max_faces + expand_percentage + perception pipeline + detector black halo + installed
+    versions of deepface, retina-face, tensorflow, opencv.
   NOT in the key: stride, start/max frames, threshold, pin strategy, smoothing.
   The full key inputs are stored in the cache meta and checked on load; any mismatch is a
   miss (new cache), never a silent reuse.
@@ -324,8 +328,10 @@ lower-level modules never call back into `core.py`.
   coordinator. `label_video.main()` parses arguments, calls the core, and maps errors to the
   existing process exit codes.
 
-Optional post-step (M6): ffmpeg re-mux of audio from the input, plus re-encode to H.264 for
-browser playback. Documented in the README, not required to run the script.
+M6 delivery: `scripts/run_full_pipeline.sh` stages the OpenCV video and CSV, re-muxes the
+input AAC audio with ffmpeg, verifies video/audio streams with ffprobe, and only then
+publishes both artifacts. The README also documents an optional H.264 re-encode for browser
+playback.
 
 ## 7. CLI and config
 ```
@@ -406,6 +412,13 @@ M4 Names (completes the vertical slice)
   in `docs/superpowers/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
   prove CLI/data/cache compatibility and short cold/warm output parity. This is an M4
   refactor checkpoint, not a new product milestone.
+  Before the full-video run, execute the owner-approved exact-resize black-margin
+  optimization in
+  `docs/superpowers/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its 300-frame
+  gate must match all 1,262 M3 baseline faces at IoU >= 0.5, manually explain additions,
+  enumerate identity changes, beat steady perception wall time by at least 50%, and prove
+  a schema-2 warm replay performs zero inference. Stop again for owner review before all
+  3,044 frames.
   STOP: owner review. The slice is verified here before any tuning.
 
 M5 Tune from evidence
@@ -438,8 +451,13 @@ Unit (pytest, no model download needed):
   only its entry; changing an upstream embedding input selects a different keyed cache;
   changing pin strategy does not.
 - Lazy model loading: fully cached gallery and FaceCache replay does not call build_model.
+- Exact detector input: 1080p produces the pixel-identical 988x576 grid crop; odd,
+  portrait, and extreme-aspect frames retain valid symmetric geometry.
+- Split perception: direct RetinaFace coordinates map back to the source frame, edge faces
+  align locally, and one skip-mode Facenet512 batch preserves frame/detection order.
 - FaceCache key: changing the threshold, pin strategy, stride or frame window does not
-  change it; changing model, normalization, max_faces, align or a library version does.
+  change it; changing model, normalization, max_faces, align, perception pipeline, detector
+  halo, or a library version does.
 - FaceCache status: a zero-face frame is stored as ok and not recomputed; a frame whose
   represent() raises is stored as failed and is retried on the next run.
 - FaceCache reuse: after a stride-3 run, a stride-1 run over the same window requests
