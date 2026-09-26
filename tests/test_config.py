@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from face_labeller.config import Config, load_config, parse_args
+from face_labeller.config import Config, build_parser, load_config, parse_args
 from face_labeller.contracts import (
     CHARACTER_NAMES,
     Face,
@@ -26,6 +26,7 @@ REQUIRED_ARGS = [
 
 def test_cli_defaults_match_design_spec() -> None:
     cfg = load_config(parse_args(REQUIRED_ARGS))
+    help_text = build_parser().format_help()
 
     assert cfg.input_path == Path("input.mp4")
     assert cfg.output_path == Path("output.mp4")
@@ -50,6 +51,10 @@ def test_cli_defaults_match_design_spec() -> None:
     assert cfg.detector_backend == "retinaface"
     assert cfg.align is True
     assert cfg.expand_percentage == 0
+    assert cfg.perception_pipeline == "retinaface_exact_resize_crop_v1"
+    assert cfg.detector_black_halo == 32
+    assert "perception-pipeline" not in help_text
+    assert "detector-black-halo" not in help_text
 
 
 def test_cli_accepts_approved_overrides() -> None:

@@ -91,6 +91,12 @@ def install_fake_deepface(
 @pytest.fixture(autouse=True)
 def reset_model_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(perception, "_MODEL_BUILT", False)
+    monkeypatch.setattr(perception, "_DETECTOR_MODEL", None, raising=False)
+
+    class FakeRetinaFace:
+        build_model = staticmethod(lambda: object())
+
+    monkeypatch.setattr(perception, "_get_retinaface", lambda: FakeRetinaFace, raising=False)
 
 
 def test_gallery_validation_requires_all_five_character_folders(tmp_path: Path) -> None:
@@ -249,7 +255,7 @@ def test_gallery_cache_key_contains_every_upstream_configuration_input(
     assert gallery_cache_key(cfg, VERSIONS) == hashlib.sha256(encoded).hexdigest()
 
 
-def test_gallery_cache_key_excludes_pin_strategy_photo_state_and_video_face_cap(
+def test_gallery_cache_key_excludes_all_downstream_matching_and_tracking_choices(
     tmp_path: Path,
 ) -> None:
     base = make_config(tmp_path, use_cache=True)
@@ -257,6 +263,10 @@ def test_gallery_cache_key_excludes_pin_strategy_photo_state_and_video_face_cap(
 
     assert gallery_cache_key(replace(base, pin_strategy="all"), VERSIONS) == expected
     assert gallery_cache_key(replace(base, max_faces=7), VERSIONS) == expected
+    assert gallery_cache_key(replace(base, threshold=0.12), VERSIONS) == expected
+    assert gallery_cache_key(replace(base, smooth=True), VERSIONS) == expected
+    assert gallery_cache_key(replace(base, iou_min=0.9), VERSIONS) == expected
+    assert gallery_cache_key(replace(base, track_ttl=99), VERSIONS) == expected
 
 
 @pytest.mark.parametrize(
@@ -296,6 +306,15 @@ def test_gallery_cache_cold_then_warm_avoids_all_model_work(
     create_gallery_files(root)
     represent_calls: list[dict] = []
     model_calls: list[str] = []
+    detector_calls: list[str] = []
+
+    class FakeRetinaFace:
+        @staticmethod
+        def build_model() -> object:
+            detector_calls.append("retinaface")
+            return object()
+
+    monkeypatch.setattr(perception, "_get_retinaface", lambda: FakeRetinaFace)
     install_fake_deepface(
         monkeypatch, calls=represent_calls, model_calls=model_calls
     )
@@ -304,15 +323,18 @@ def test_gallery_cache_cold_then_warm_avoids_all_model_work(
     cold = load_gallery(root, cfg)
     assert len(represent_calls) == 10
     assert model_calls == ["Facenet512"]
+    assert detector_calls == ["retinaface"]
     assert len(list(cfg.cache_dir.glob("gallery_*.npz"))) == 1
 
     represent_calls.clear()
     model_calls.clear()
     monkeypatch.setattr(perception, "_MODEL_BUILT", False)
+    monkeypatch.setattr(perception, "_DETECTOR_MODEL", None)
     warm = load_gallery(root, replace(cfg, pin_strategy="all"))
 
     assert represent_calls == []
     assert model_calls == []
+    assert detector_calls == ["retinaface"]
     assert warm.meta["source_paths"] == cold.meta["source_paths"]
     assert warm.pins.shape == (10, 512)
 

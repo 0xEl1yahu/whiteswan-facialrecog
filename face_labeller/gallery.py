@@ -73,6 +73,7 @@ def _embed_gallery_photo(path: Path, cfg: Config) -> np.ndarray:
     if image is None:
         raise ValueError("image is unreadable")
 
+    perception.build_detector_model()
     perception.build_models(cfg)
     results = perception._get_deepface().represent(
         img_path=image,

@@ -67,7 +67,7 @@ def test_face_cache_key_contains_video_hash_and_every_upstream_input(
     write_video_bytes(video_path)
     cfg = make_config(tmp_path)
     expected_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "video_sha256": hashlib.sha256(b"video-one").hexdigest(),
         "model_name": "Facenet512",
         "detector_backend": "retinaface",
@@ -75,6 +75,8 @@ def test_face_cache_key_contains_video_hash_and_every_upstream_input(
         "align": True,
         "max_faces": None,
         "expand_percentage": 0,
+        "perception_pipeline": "retinaface_exact_resize_crop_v1",
+        "detector_black_halo": 32,
         "l2_normalize": True,
         "versions": VERSIONS,
     }
@@ -87,7 +89,9 @@ def test_face_cache_key_contains_video_hash_and_every_upstream_input(
     ).hexdigest()
 
 
-def test_cache_keys_match_pre_modularization_golden_values(tmp_path: Path) -> None:
+def test_gallery_key_stays_compatible_and_face_key_matches_schema_two_golden(
+    tmp_path: Path,
+) -> None:
     video_path = tmp_path / "fixture.mp4"
     write_video_bytes(video_path, b"video-fixture")
     cfg = make_config(tmp_path)
@@ -96,7 +100,7 @@ def test_cache_keys_match_pre_modularization_golden_values(tmp_path: Path) -> No
         "799c07df4ebcc29fefc98c3feb18383d84f269e9f09ff4afbfe270233161f0fc"
     )
     assert face_cache_key(video_path, cfg, VERSIONS) == (
-        "13fdefcc341fd7d2482b1c2b542ea0d0e4b24eee705f77ff2657f53a22fa9051"
+        "dd3d80568f2d064f978fe2c1eca7478550068c08a160d3bab8037dbe2f0c6175"
     )
 
 
@@ -109,6 +113,8 @@ def test_cache_keys_match_pre_modularization_golden_values(tmp_path: Path) -> No
         ("align", False),
         ("max_faces", 3),
         ("expand_percentage", 5),
+        ("perception_pipeline", "different-pipeline"),
+        ("detector_black_halo", 64),
     ],
 )
 def test_face_cache_key_changes_for_upstream_config(
