@@ -22,7 +22,13 @@
 - Never scrape or download reference photos; only validate owner-curated files.
 - Do not change the approved data contracts or `label_video.py` CLI without further owner approval.
 - Cache one gallery embedding per photo and perception results per absolute frame index. Cache keys contain only upstream embedding inputs, never threshold, pin strategy, stride, frame window, or smoothing.
-- Use owner-decided `all` pins (D1); retain provisional batch size 8 (D2), threshold 0.30 and base normalization (D3) until their gates.
+- Use owner-decided `all` pins (D1). For D2, use batch size 8, stride 3 for quick smoke
+  tests, stride 2 for review previews, and stride 1 for final output. Retain threshold 0.30
+  and base normalization as provisional until the D3 gate.
+- Profile the real perception path before starting M4's full 3,044-frame run. Keep the
+  current per-frame RetinaFace path as the correctness baseline; an event-driven gate or
+  tracker may be proposed from evidence but cannot replace it without owner approval
+  because a newly appearing Unknown face could otherwise be missed.
 - M6 is forbidden without an explicit owner command. M7 packages whatever has been approved if M6 is skipped.
 
 ## File Structure
@@ -256,59 +262,64 @@ If Eli asks, commit the M2 files as `feat: add incremental reference gallery`.
 - Consumes: `Config`, `Face`, `embed_faces`, absolute video frame indices, and installed-version metadata.
 - Produces: `face_cache_key(video_path, cfg, versions) -> str`; `FaceCache.status/get/put_ok/put_failed/missing/flush`; `selected_frame_indices(start, stop, stride) -> list[int]`; `process_batch_with_fallback(indexed_frames, cfg) -> dict[int, tuple[str, list[Face]]]`; and `process_video(cfg, gallery: Gallery | None = None) -> RunSummary`.
 
-- [ ] **Step 1: Write failing FaceCache key/status tests**
+- [x] **Step 1: Write failing FaceCache key/status tests**
 
 Assert video SHA-256, upstream perception inputs, and installed versions affect the key; threshold, pin strategy, stride, frame window, smoothing, drawing, CSV, and output path do not. Test explicit absent/ok/failed statuses, including an ok empty-face frame and retry of failed status.
 
-- [ ] **Step 2: Verify the FaceCache tests fail**
+- [x] **Step 2: Verify the FaceCache tests fail**
 
 Run: `.venv/bin/python -m pytest tests/test_face_cache.py -k "key or status" -v`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement FaceCache metadata and atomic persistence**
+- [x] **Step 3: Implement FaceCache metadata and atomic persistence**
 
 Serialize boxes, landmarks, confidences, embeddings, and statuses without changing the public `Face` contract. Validate full metadata on load. Treat missing, truncated/corrupt, or mismatched files as clean misses with warnings. Flush each completed batch atomically so interruption loses at most the active batch.
 
-- [ ] **Step 4: Pass key/status/persistence tests**
+- [x] **Step 4: Pass key/status/persistence tests**
 
 Run: `.venv/bin/python -m pytest tests/test_face_cache.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Write failing selection/reuse/fallback tests**
+- [x] **Step 5: Write failing selection/reuse/fallback tests**
 
 Assert the requested window's first frame is always selected; later selections are relative to it; a stride-3 cache followed by stride 1 requests only missing absolute indices; repeat runs request none; `--cache-dir` redirects both cache families; `--no-cache` bypasses all cache reads/writes; a batch exception triggers individual retries; successful frames become ok; the true exception becomes failed; and failed frames retry next run.
 
-- [ ] **Step 6: Implement selection and batch fallback**
+- [x] **Step 6: Implement selection and batch fallback**
 
 Keep `embed_faces`' approved return type. Catch a batch exception in `process_batch_with_fallback`, retry each frame via `embed_faces([frame], cfg)`, and return explicit statuses for FaceCache persistence.
 
-- [ ] **Step 7: Pass reuse/fallback tests**
+- [x] **Step 7: Pass reuse/fallback tests**
 
 Run: `.venv/bin/python -m pytest tests/test_face_cache.py tests/test_perception.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 8: Write failing video I/O integration tests**
+- [x] **Step 8: Write failing video I/O integration tests**
 
 Generate a deterministic ten-frame fixture video. Test unreadable input, invalid FPS/size metadata, writer-open failure, same output frame count/FPS/size, every frame written, Unknown boxes drawn from cached faces, stride reuse, and continuation after one failed frame. Patch perception for fast tests; mark the real-model path slow.
 
-- [ ] **Step 9: Implement reader/batcher/writer and progress reporting**
+- [x] **Step 9: Implement reader/batcher/writer and progress reporting**
 
 Use `cv2.VideoCapture`, `cv2.VideoWriter` with `mp4v`, absolute frame indices, bounded pending frames, and a `RunSummary` containing elapsed/model/perception times, processed/written frames, faces, cache hits/misses/failures, FPS, and label distribution. Validate writer state before processing. Create output directories safely.
 
-- [ ] **Step 10: Pass video integration tests**
+- [x] **Step 10: Pass video integration tests**
 
 Run: `.venv/bin/python -m pytest tests/test_video_integration.py -m "not slow" -v`
 
 Expected: PASS.
 
-- [ ] **Step 11: Collect M3 timing and cache evidence**
+- [x] **Step 11: Collect M3 timing and cache evidence**
 
 Run the first 300 frames at stride 3, repeat it warm, then run stride 1 over the same window. Record model load, wall time, processed FPS, faces, cache hit/miss counts, and prove the stride-1 run computes only the missing indices. Separately time a cold stride-1 window for a fair stride comparison.
 
-- [ ] **Step 12: Report the M3 STOP gate**
+Execution note (2026-09-26): the cold stride-3 run plus its stride-1 continuation
+populated every frame exactly once. A second cold stride-1 run was intentionally omitted
+because it would recompute all 300 completed frames under the strict deadline; the combined
+timing is retained as a conservative comparison with that limitation stated.
+
+- [x] **Step 12: Report the M3 STOP gate**
 
 Report how per-frame detection and Unknown boxes advance R1, output frame/duration checks, failure behavior, timings, reuse evidence, and D2 batch-size/preview-stride observations. Reaffirm final stride 1. Stop before M4.
 
@@ -324,6 +335,7 @@ If Eli asks, commit the M3 files as `feat: add resumable video face cache`.
 - Modify: `label_video.py`
 - Create: `tests/test_matching.py`
 - Modify: `tests/test_video_integration.py`
+- Create: `docs/results/m4-perception-profile.md`
 - Modify: `README.md`
 - Modify: `AGENTS.md`
 
@@ -380,19 +392,65 @@ Run:
 
 Expected: all tests pass; slow tests may use the warmed model and short media fixtures.
 
-- [ ] **Step 10: Generate and validate the full stride-1 vertical slice**
+- [ ] **Step 10: Profile the underlying perception processes before the full run**
+
+Use `cProfile` around the existing CLI on frames 600–629, 1500–1529, and 2700–2729.
+These three 30-frame windows sample different thirds of the clip and sit outside the
+completed first 300 frames. Use `cache/m3` so all 90 newly profiled frames remain reusable.
+For each start frame, run this command with matching zero-padded filenames:
+
+```bash
+.venv/bin/python -m cProfile -o output/m4_profile_0600.pstats label_video.py \
+  --input data/video-source/nimbus.mp4 --output output/m4_profile_0600.mp4 \
+  --ref-dir data/reference-images --start-frame 600 --max-frames 30 \
+  --stride 1 --batch-size 8 --cache-dir cache/m3
+```
+
+Repeat the same command without changing the cache, replacing the profile and video names
+with `output/m4_profile_0600_warm.pstats` and `output/m4_profile_0600_warm.mp4`. Then print
+the top 50 cumulative call stacks non-interactively with:
+
+```bash
+.venv/bin/python -c 'import pstats; pstats.Stats("output/m4_profile_0600.pstats").strip_dirs().sort_stats("cumulative").print_stats(50)'
+```
+
+Repeat both cold/warm commands and the report command with `0600`/`600` replaced by
+`1500`/`1500` and `2700`/`2700` respectively.
+
+Record the exact commands in `docs/results/m4-perception-profile.md`, separating model
+load, video I/O/rendering, RetinaFace detection, Facenet512 embedding, face count, and
+wall time as far as the installed DeepFace call stack permits. The three cold profile
+processes each pay model startup, so report it separately rather than projecting it per
+window into the single-process full run. Warm repeats must prove the neural calls
+disappear. Do not add a profiling CLI or restructure production code solely for this
+measurement.
+
+- [ ] **Step 11: Report the runtime finding and select the smallest safe path**
+
+Extrapolate stride-1 and stride-2 runtime from all measured windows, state the uncertainty,
+and rank the actual hotspots. STOP before the full-video run and ask Eli to choose one of:
+(a) continue with the correct per-frame baseline; (b) amend this plan with a measured,
+R1-preserving optimization such as better embedding batching or safe CPU thread tuning;
+or (c) amend the spec and plan for periodic RetinaFace, a cheap face/activity gate, or
+tracking between detections. For option (c), report expected missed-face latency and false-
+negative risk because it weakens the requirement to attempt detection on every final frame.
+The heavy models must remain resident once loaded; an idle gate must not repeatedly pay the
+measured model-startup cost. Do not implement either optimization path until its tests,
+acceptance criteria, and owner approval are added to this plan.
+
+- [ ] **Step 12: Generate and validate the full stride-1 vertical slice**
 
 Run the approved CLI over all 3,044 frames at stride 1. Verify output frame count, FPS, dimensions, duration tolerance of one frame, CSV schema/row count, cache completion, and end-of-run label distribution. Manually inspect representative crowd, wide, motion, profile, and scene-cut frames for boxes and labels.
 
-- [ ] **Step 11: Prove zero-inference relabelling**
+- [ ] **Step 13: Prove zero-inference relabelling**
 
 Run again with a different threshold and separate output/CSV paths. Capture logs/tests proving no Facenet512 load, RetinaFace call, or Facenet512 inference occurred and that cached detections/embeddings were reused.
 
-- [ ] **Step 12: Report the M4 STOP gate**
+- [ ] **Step 14: Report the M4 STOP gate**
 
 Report how the stride-1 video and Unknown handling satisfy R1/R2, all test results, full/warm timings, output validation, label distribution, visual findings, and open questions. Stop before tuning.
 
-- [ ] **Step 13: Commit only if explicitly requested**
+- [ ] **Step 15: Commit only if explicitly requested**
 
 If Eli asks, commit the M4 files as `feat: complete cached face labelling pipeline`.
 

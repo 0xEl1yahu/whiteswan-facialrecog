@@ -345,9 +345,18 @@ M3 Boxes across the full video (no names)
 
 M4 Names (completes the vertical slice)
   Build: cosine_distances, match, labels, MatchLogger.
-  Accept: unit tests pass; the full video is labelled at stride 1; the CSV is written with
-  nearest_name retained for Unknown assignments; relabelling at a different threshold
-  replays from the FaceCache without loading Facenet512 or making inference calls.
+  Before the full run, profile short uncached windows from multiple parts of the clip and
+  separate RetinaFace, Facenet512, model-load, and I/O/render costs as far as the installed
+  stack permits. Reuse those cached frames. The per-frame RetinaFace path remains the
+  correctness baseline. Any event-driven gate or tracking substitute must report its
+  missed-face latency/false-negative risk and requires owner approval because it can weaken
+  R1; heavyweight models remain loaded while idle rather than restarting per trigger.
+  STOP after profiling: owner chooses the per-frame baseline, an R1-preserving measured
+  optimization, or a separately specified event-driven trade-off before the full run.
+  Accept: unit tests pass; after the runtime checkpoint is reviewed, the full video is
+  labelled at stride 1; the CSV is written with nearest_name retained for Unknown
+  assignments; relabelling at a different threshold replays from the FaceCache without
+  loading Facenet512 or making inference calls.
   STOP: owner review. The slice is verified here before any tuning.
 
 M5 Tune from evidence
@@ -407,11 +416,12 @@ D1 Pin strategy: DECIDED by Eli on 2026-09-26: "all" (per-photo pins, nearest wi
    per character: nearest identity 10/10, 4 assigned, 6 Unknown, 0 wrong at threshold 0.30.
    "all" preserves both examples instead of averaging their variation. Storage remains
    one entry per photo, and the strategy is applied at load without re-embedding.
-D2 Stride / batch size. DECIDED (final output): stride 1, so detection is attempted on every
-   frame. Stride remains configurable for development and preview runs, with the speed vs
-   stale-box trade-off reported at M3. Batch size is chosen from the M3 timings;
-   provisional: 8. Only the embedding pass is batched (detection loops per frame), so
-   expect stride, not batch size, to drive runtime.
+D2 Stride / batch size. DECIDED by Eli on 2026-09-26: batch size 8; stride 3 for quick
+   engineering smoke tests; stride 2 for reviewable previews; and stride 1 for the final
+   output, so detection is attempted on every final frame. At approximately 30 fps,
+   stride 2 can carry a box for at most one skipped frame (about 33 ms), while halving the
+   selected detection work. Only the embedding pass is batched because detection loops per
+   frame, so stride—not batch size—drives runtime. The CLI default remains stride 1.
 D3 Threshold and normalization, chosen from the M5 evidence.
    Provisional: 0.30 (library default), base.
 
