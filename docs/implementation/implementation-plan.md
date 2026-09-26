@@ -343,45 +343,45 @@ If Eli asks, commit the M3 files as `feat: add resumable video face cache`.
 - Consumes: `Face`, `Gallery`, `Config`, cached perception, and DeepFace confidence utilities.
 - Produces: pure `cosine_distances(v, pins) -> np.ndarray`; pure `match(face, gallery, threshold) -> Match`; `MatchLogger.log(frame_idx, face_idx, face, match, threshold, frame=None) -> None`; complete `main() -> int`; output video; and `matches.csv`.
 
-- [ ] **Step 1: Write failing cosine and match tests**
+- [x] **Step 1: Write failing cosine and match tests**
 
 Assert NumPy cosine distances agree with DeepFace `verification.find_distance` to `1e-5`; nearest pin wins deterministically; exact-threshold distance is Unknown because the rule is `<`; below-threshold assigns the owner; above-threshold keeps `nearest_name` while `name is None`; and confidence calls `find_confidence(distance, "Facenet512", verified, "cosine")` with the correct verified boolean.
 
-- [ ] **Step 2: Verify matching tests fail**
+- [x] **Step 2: Verify matching tests fail**
 
 Run: `.venv/bin/python -m pytest tests/test_matching.py -k "cosine or match" -v`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement pure distance and matching functions**
+- [x] **Step 3: Implement pure distance and matching functions**
 
 Use `1 - pins @ v`, preserve gallery order for deterministic ties, and never read configuration or perform I/O inside either function.
 
-- [ ] **Step 4: Pass cosine and match tests**
+- [x] **Step 4: Pass cosine and match tests**
 
 Run: `.venv/bin/python -m pytest tests/test_matching.py -k "cosine or match" -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Write failing MatchLogger tests**
+- [x] **Step 5: Write failing MatchLogger tests**
 
 Assert the exact approved column order, one row per face, stable face indices, numeric serialization, `nearest_name` retained for Unknown, `assigned_name` rendered as `Unknown`, a fresh header and overwrite (`"w"`) mode for each run, closed/flushed files, and clipped debug crops named from frame/face/nearest/distance without mutating frames.
 
-- [ ] **Step 6: Implement MatchLogger and pass its tests**
+- [x] **Step 6: Implement MatchLogger and pass its tests**
 
 Run: `.venv/bin/python -m pytest tests/test_matching.py -v`
 
 Expected: PASS. The logger consumes `Match.nearest_name`; it must never recalculate distances.
 
-- [ ] **Step 7: Write failing vertical-slice integration tests**
+- [x] **Step 7: Write failing vertical-slice integration tests**
 
 Test gallery load, cached perception, matching, labels, CSV rows, output frame count, and non-zero exit on missing input/ref/output failures. Add a fully cached threshold-change test that monkeypatches `DeepFace.build_model` and `DeepFace.represent` to fail if called, then asserts successful relabelling and changed assignments.
 
-- [ ] **Step 8: Integrate gallery, matcher, logger, renderer, and CLI**
+- [x] **Step 8: Integrate gallery, matcher, logger, renderer, and CLI**
 
 Make `main()` validate paths, load compatible caches before deciding whether model construction is needed, process all faces without a default cap, and return a process exit code. Every DeepFace call must retain explicit model/detector parameters.
 
-- [ ] **Step 9: Run the complete automated suite**
+- [x] **Step 9: Run the complete automated suite**
 
 Run:
 
@@ -392,7 +392,7 @@ Run:
 
 Expected: all tests pass; slow tests may use the warmed model and short media fixtures.
 
-- [ ] **Step 10: Profile the underlying perception processes before the full run**
+- [x] **Step 10: Profile the underlying perception processes before the full run**
 
 Use `cProfile` around the existing CLI on frames 600–629, 1500–1529, and 2700–2729.
 These three 30-frame windows sample different thirds of the clip and sit outside the
@@ -425,7 +425,7 @@ window into the single-process full run. Warm repeats must prove the neural call
 disappear. Do not add a profiling CLI or restructure production code solely for this
 measurement.
 
-- [ ] **Step 11: Report the runtime finding and select the smallest safe path**
+- [x] **Step 11: Report the runtime finding and select the smallest safe path**
 
 Extrapolate stride-1 and stride-2 runtime from all measured windows, state the uncertainty,
 and rank the actual hotspots. STOP before the full-video run and ask Eli to choose one of:

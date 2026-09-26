@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import csv
 from dataclasses import dataclass, field
 import hashlib
 from importlib import metadata as importlib_metadata
 import json
 from pathlib import Path
+import sys
 import tempfile
 import time
 from typing import Any, Literal, Sequence
 
 import cv2
 import numpy as np
+from deepface.modules import verification
 
 
 MODEL_NAME = "Facenet512"
@@ -855,9 +858,130 @@ def _unknown_matches(faces: Sequence[Face]) -> list[Match]:
     ]
 
 
+def cosine_distances(v: np.ndarray, pins: np.ndarray) -> np.ndarray:
+    """Return cosine distances for L2-normalised embeddings and gallery pins."""
+    return 1 - pins @ v
+
+
+def match(face: Face, gallery: Gallery, threshold: float) -> Match:
+    """Assign the nearest gallery owner only below the strict threshold."""
+    distances = cosine_distances(face.embedding, gallery.pins)
+    nearest_index = int(np.argmin(distances))
+    distance = float(distances[nearest_index])
+    nearest_name = gallery.pin_owner[nearest_index]
+    verified = distance < threshold
+    return Match(
+        nearest_name=nearest_name,
+        name=nearest_name if verified else None,
+        distance=distance,
+        confidence=float(
+            verification.find_confidence(distance, MODEL_NAME, verified, "cosine")
+        ),
+    )
+
+
+_MATCH_COLUMNS = (
+    "frame_idx", "face_idx", "x", "y", "w", "h", "det_conf",
+    "nearest_name", "distance", "threshold", "assigned_name", "confidence",
+)
+
+
+def _validate_csv_path(cfg: Config) -> None:
+    """Keep evidence output away from input media and embedding stores."""
+    csv_path = cfg.csv_path.resolve()
+    if csv_path == cfg.input_path.resolve():
+        raise ValueError("CSV path must differ from the input video")
+    if csv_path == cfg.output_path.resolve():
+        raise ValueError("CSV path must differ from the output video")
+    if csv_path.is_relative_to(cfg.ref_dir.resolve()):
+        raise ValueError("CSV path must be outside the reference images directory")
+    if csv_path.is_relative_to(cfg.cache_dir.resolve()):
+        raise ValueError("CSV path must be outside the cache directory")
+
+
+class MatchLogger:
+    """Write one evidence row per face and optional original-frame crops."""
+
+    def __init__(self, cfg: Config) -> None:
+        _validate_csv_path(cfg)
+        self._cfg = cfg
+        cfg.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=cfg.csv_path.parent,
+            prefix=f".{cfg.csv_path.name}.",
+            suffix=".tmp",
+            newline="",
+            encoding="utf-8",
+            delete=False,
+        )
+        self._staged_path = Path(self._file.name)
+        self._writer = csv.writer(self._file)
+        self._writer.writerow(_MATCH_COLUMNS)
+
+    @property
+    def closed(self) -> bool:
+        return self._file.closed
+
+    def log(
+        self,
+        frame_idx: int,
+        face_idx: int,
+        face: Face,
+        match: Match,
+        threshold: float,
+        frame: np.ndarray | None = None,
+    ) -> None:
+        self._writer.writerow(
+            (
+                frame_idx, face_idx, *face.box, face.det_conf,
+                match.nearest_name, match.distance, threshold,
+                match.name if match.name is not None else "Unknown",
+                match.confidence,
+            )
+        )
+        if self._cfg.debug_crops:
+            if frame is None:
+                raise ValueError("debug crops require the original frame")
+            x, y, width, height = face.box
+            frame_height, frame_width = frame.shape[:2]
+            left = min(max(x, 0), frame_width)
+            top = min(max(y, 0), frame_height)
+            right = min(max(x + width, 0), frame_width)
+            bottom = min(max(y + height, 0), frame_height)
+            if right > left and bottom > top:
+                crop_dir = self._cfg.csv_path.parent / "debug" / "crops"
+                crop_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = "".join(
+                    character if character.isalnum() or character in {".", "_", "-"} else "_"
+                    for character in match.nearest_name
+                )
+                filename = f"{frame_idx:06d}_{face_idx:02d}_{safe_name}_{match.distance}.png"
+                if not cv2.imwrite(str(crop_dir / filename), frame[top:bottom, left:right]):
+                    raise OSError(f"cannot write debug crop: {crop_dir / filename}")
+
+    def close(self, publish: bool = True) -> None:
+        if not self._file.closed:
+            self._file.close()
+        if self._staged_path is None:
+            return
+        staged_path = self._staged_path
+        self._staged_path = None
+        try:
+            if publish:
+                staged_path.replace(self._cfg.csv_path)
+        finally:
+            staged_path.unlink(missing_ok=True)
+
+    def __enter__(self) -> MatchLogger:
+        return self
+
+    def __exit__(self, exc_type: object, *_exc: object) -> None:
+        self.close(publish=exc_type is None)
+
+
 def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
-    """Write the requested video window with cached Unknown face annotations."""
-    del gallery  # M3 renders Unknown; M4 consumes this argument for identity matching.
+    """Write the requested video window with cached face annotations."""
     if not cfg.input_path.is_file():
         raise ValueError(f"cannot open input video: {cfg.input_path}")
     if cfg.input_path.resolve() == cfg.output_path.resolve():
@@ -871,6 +995,7 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
         raise ValueError(f"cannot open input video: {cfg.input_path}")
 
     writer: Any | None = None
+    logger: MatchLogger | None = None
     temporary_output: Path | None = None
     succeeded = False
     try:
@@ -913,6 +1038,9 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
         if not writer.isOpened():
             raise ValueError(f"cannot open output video: {cfg.output_path}")
 
+        if gallery is not None:
+            logger = MatchLogger(cfg)
+
         cache = FaceCache(cfg.input_path, cfg)
         initial_status = {frame_idx: cache.status(frame_idx) for frame_idx in selected}
         cache_hits = sum(status == "ok" for status in initial_status.values())
@@ -920,12 +1048,14 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
         perception_seconds = 0.0
         written_frames = 0
         last_faces: list[Face] = []
+        last_matches: list[Match] = []
+        label_counts: Counter[str] = Counter()
         pending_frames: list[tuple[int, np.ndarray]] = []
         pending_missing: list[tuple[int, np.ndarray]] = []
         max_pending_frames = max(1, cfg.batch_size * cfg.stride)
 
         def flush_pending() -> None:
-            nonlocal perception_seconds, written_frames, last_faces
+            nonlocal perception_seconds, written_frames, last_faces, last_matches
             if not pending_frames:
                 return
             if pending_missing:
@@ -943,7 +1073,21 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
                 if frame_idx in selected_set:
                     cached_faces = cache.get(frame_idx)
                     last_faces = [] if cached_faces is None else cached_faces
-                rendered = draw(frame, last_faces, _unknown_matches(last_faces), cfg)
+                    last_matches = (
+                        [match(face, gallery, cfg.threshold) for face in last_faces]
+                        if gallery is not None
+                        else _unknown_matches(last_faces)
+                    )
+                rendered = draw(frame, last_faces, last_matches, cfg)
+                for face_idx, (face, assignment) in enumerate(
+                    zip(last_faces, last_matches, strict=True)
+                ):
+                    label_counts[assignment.name or "Unknown"] += 1
+                    if logger is not None:
+                        logger.log(
+                            frame_idx, face_idx, face, assignment, cfg.threshold,
+                            frame=frame,
+                        )
                 writer.write(rendered)
                 written_frames += 1
                 if written_frames % PROGRESS_EVERY_FRAMES == 0:
@@ -985,10 +1129,13 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
         writer.release()
         writer = None
         capture.release()
-        faces = sum(len(cache.get(index) or []) for index in selected)
+        faces = sum(label_counts.values())
         failures = sum(cache.status(index) == "failed" for index in selected)
         temporary_output.replace(cfg.output_path)
         temporary_output = None
+        if logger is not None:
+            logger.close()
+            logger = None
         succeeded = True
         elapsed_seconds = time.perf_counter() - run_started
         model_seconds = _MODEL_LOAD_SECONDS_TOTAL - model_seconds_before
@@ -1008,12 +1155,14 @@ def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
             fps=fps,
             width=width,
             height=height,
-            label_distribution={"Unknown": faces},
+            label_distribution=dict(sorted(label_counts.items())),
         )
     finally:
         capture.release()
         if writer is not None:
             writer.release()
+        if logger is not None:
+            logger.close(publish=False)
         if not succeeded and temporary_output is not None:
             temporary_output.unlink(missing_ok=True)
 
@@ -1237,15 +1386,35 @@ def draw(
 
 def main(argv: Sequence[str] | None = None) -> int:
     cfg = load_config(parse_args(argv))
-    summary = process_video(cfg)
+    run_started = time.perf_counter()
+    model_seconds_before = _MODEL_LOAD_SECONDS_TOTAL
+    try:
+        if not cfg.input_path.is_file():
+            raise ValueError(f"cannot open input video: {cfg.input_path}")
+        if cfg.input_path.resolve() == cfg.output_path.resolve():
+            raise ValueError("input and output video paths must differ")
+        if not cfg.ref_dir.is_dir():
+            raise ValueError(f"reference directory does not exist: {cfg.ref_dir}")
+        _validate_csv_path(cfg)
+        gallery = load_gallery(cfg.ref_dir, cfg)
+        gallery_seconds = time.perf_counter() - run_started
+        gallery_model_seconds = _MODEL_LOAD_SECONDS_TOTAL - model_seconds_before
+        summary = process_video(cfg, gallery)
+    except Exception as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    elapsed_seconds = time.perf_counter() - run_started
     print(
-        f"complete elapsed={summary.elapsed_seconds:.3f}s "
-        f"model={summary.model_seconds:.3f}s "
+        f"complete elapsed={elapsed_seconds:.3f}s "
+        f"gallery={gallery_seconds:.3f}s "
+        f"model={summary.model_seconds + gallery_model_seconds:.3f}s "
+        f"gallery_model={gallery_model_seconds:.3f}s "
         f"perception={summary.perception_seconds:.3f}s "
         f"processing_fps={summary.processing_fps:.2f} "
         f"processed={summary.processed_frames} written={summary.written_frames} "
         f"faces={summary.faces} failures={summary.failures} "
-        f"cache_hits={summary.cache_hits} cache_misses={summary.cache_misses}"
+        f"cache_hits={summary.cache_hits} cache_misses={summary.cache_misses} "
+        f"labels={summary.label_distribution}"
     )
     return 0
 

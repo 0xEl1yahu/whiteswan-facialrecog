@@ -9,7 +9,8 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: M3 resumable video box pipeline complete and awaiting owner review.**
+> **Status: M4 matching and runtime profiling checkpoint complete; awaiting the owner's
+> runtime-path decision before the full-video run.**
 > The
 > source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
 > milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
@@ -91,7 +92,7 @@ derived from the same records and never cause re-embedding.
 
 ## Usage
 
-Run the current pipeline:
+Run the labelling pipeline:
 ```bash
 python label_video.py \
   --input data/video-source/nimbus.mp4 \
@@ -105,12 +106,21 @@ Useful options:
   it halves detection work while carrying boxes across at most one skipped frame. Final
   output remains stride 1 so every frame is inspected.
 - `--batch-size` controls the number of selected frames recovered together (default: 8).
-- `--threshold` changes the match cut-off.
+- `--threshold` changes the strict match cut-off (default 0.30 until M5).
 - `--pin-strategy mean|all` sets how photos become pins (default: owner-selected `all`).
 - `--no-cache` forces a full recompute.
+- `--csv` sets the evidence file (default: `output/matches.csv`).
+- `--debug-crops` saves clipped original-frame face crops beside the CSV under `debug/crops/`.
 
 Outputs go to `output/` (the video, `matches.csv`, and optional debug crops). Caches go to
 `cache/`. Both folders are gitignored.
+The CSV writes one row for each displayed face on each output frame, with frame and face
+indices, box, detection confidence, nearest pin owner and distance, threshold, assigned
+name, and match confidence. Rejected matches display `Unknown` while retaining the
+nearest pin owner for later review. A successful run replaces its CSV; a failed run
+preserves the prior file. The CLI reports total elapsed time and gallery/model-load time
+separately. Compatible gallery
+and frame caches let a threshold change relabel the video without running the models.
 
 ## Milestones
 
@@ -131,6 +141,7 @@ Each milestone ends with a stop for the owner to test and review.
 
 ```bash
 .venv/bin/python -m pytest tests/test_environment.py -m slow -v
+.venv/bin/python -m pytest tests/test_matching.py -v
 .venv/bin/python -m pytest -m "not slow"
 .venv/bin/python -m pytest -m slow
 ```
@@ -210,4 +221,6 @@ section, added after M4 and M5, will report how often each happens in this clip.
   stride 2 for review previews, and stride 1 for final output.
 - The dated baseline is retained in `docs/results/m3-video-cache-baseline.md`.
 
-*Runtime, frames per second, and label distribution are added after M4.*
+The detailed M4 hotspot timings and runtime projections are retained in
+`docs/results/m4-perception-profile.md`; the final full-video runtime and label
+distribution will be added after the owner-approved run.

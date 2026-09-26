@@ -77,6 +77,7 @@ output/                      labelled video, matches.csv, debug crops (gitignore
 - `.venv/bin/python -m pytest tests/test_config.py tests/test_perception.py -v` for M1.
 - `.venv/bin/python -m pytest tests/test_face_cache.py tests/test_video_integration.py -v`
   for M3 cache and video integration.
+- `.venv/bin/python -m pytest tests/test_matching.py -v` for M4 matching and CSV logging.
 - `.venv/bin/python -m pytest -m "not slow"` for unit tests.
 - `.venv/bin/python -m pytest -m slow` for integration tests.
 - `python label_video.py --input ... --output ... --ref-dir ...`
