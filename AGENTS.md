@@ -7,6 +7,15 @@ White Swan Data ML assessment: label every face in a video with a bounding box a
 Harry Potter character name (Harry, Ron, Hermione, McGonagall, Snape) or "Unknown".
 Stack is fixed: Python + DeepFace, detector RetinaFace, recogniser Facenet512, cosine distance.
 
+## Core requirements (never lose sight of these)
+- **R1:** Draw bounding boxes around **all** the faces in the video. Unknown faces are still
+  boxed, and the number of faces per frame is never capped by default. Stride remains
+  configurable for development, but the final deliverable uses stride 1 so detection is
+  attempted on every frame.
+- **R2:** Label each box with the character's name when possible, otherwise "Unknown".
+
+Every milestone must move these forward, and every gate report must say how.
+
 **The spec is [design-plan.md](design-plan.md). Read it in full before doing any work.**
 It is the source of truth; this file only summarises how to work with it.
 
@@ -27,8 +36,10 @@ It is the source of truth; this file only summarises how to work with it.
 ## Priorities
 1. Vertical slice first (M1-M4), provable at every gate. Work runs to M5 then halts;
    M6 only on the owner's explicit command.
-2. Data efficiency: compute detections/embeddings once, cache, replay. Never re-run models
-   to change a threshold or pin strategy.
+2. Data efficiency: compute detections/embeddings once, cache by their true upstream inputs,
+   and replay. Never load models or re-run inference when compatible gallery and frame data
+   are cached. Adding a reference image embeds only that image; changing stride computes
+   only missing frame indices; threshold and pin-strategy changes reuse all embeddings.
 3. CPU only. Do not add GPU code, flags or benchmarks.
 
 ## Repo layout
@@ -37,7 +48,7 @@ design-plan.md               spec (source of truth)
 label_video.py, tests/       to be built
 data/video-source/nimbus.mp4 input clip, Philosopher's Stone (gitignored)
 data/reference-images/<Name>/ owner-curated gallery (gitignored; owner supplies before M2)
-cache/                       gallery.npz (one embedding per photo) + FaceCache (gitignored)
+cache/                       keyed gallery caches (one embedding/photo) + FaceCache (gitignored)
 output/                      labelled video, matches.csv, debug crops (gitignored)
 ```
 

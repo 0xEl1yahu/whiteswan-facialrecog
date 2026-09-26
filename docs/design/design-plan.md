@@ -1,8 +1,18 @@
 # SPEC: Character Face Labeller (White Swan Data ML Assessment)
 
 ## 0. Objective
+Core requirements (from the brief; every milestone serves these two):
+  R1. Draw bounding boxes around ALL the faces in the video.
+  R2. Label the boxes with the respective character's name when possible, otherwise
+      "Unknown".
+
 Given an input video, produce an output video where every detected face has a bounding box,
 labelled with a character name when recognisable, otherwise "Unknown".
+R1 implications: max_faces defaults to None (no cap); no face is dropped for being
+unrecognised (Unknown faces are still boxed); every output frame carries boxes. The final
+deliverable uses stride 1 so detection is attempted on every frame. Stride remains
+configurable for development and preview runs; at stride > 1, skipped frames reuse the last
+boxes and can lag on entrances, exits, cuts or fast motion. This trade-off is reported at M3.
 Characters: Harry Potter, Ron Weasley, Hermione Granger, Prof. McGonagall, Prof. Severus Snape.
 Required stack: Python + DeepFace, detector = RetinaFace, recogniser = Facenet512.
 Accuracy bar: "reasonable given the model's capabilities". Not perfect.
@@ -52,7 +62,7 @@ label_video.py                  the pipeline (single file)
 tests/                          pytest suite (unit + slow integration)
 data/video-source/nimbus.mp4    input clip            (gitignored)
 data/reference-images/<Name>/   owner-curated gallery (gitignored)
-cache/                          gallery + per-frame embedding caches (gitignored)
+cache/                          keyed gallery + per-frame embedding caches (gitignored)
 output/                         labelled video, matches.csv, debug/ (gitignored)
 ```
 
@@ -75,7 +85,7 @@ Single process, two phases, stages passing explicit records.
 
 INDEXING (once, cached)
   data/reference-images/<Name>/*.jpg -> RetinaFace -> align -> Facenet512
-    -> per-photo embeddings (cache/gallery.npz) -> pin strategy applied at load -> Gallery
+    -> per-photo embeddings (`cache/gallery_{key}.npz`) -> pin strategy applied at load -> Gallery
 
 INFERENCE (streaming, per frame)
   Reader -> Perception -> Matcher -> [Tracker] -> Renderer -> Writer
@@ -86,8 +96,10 @@ State lives ONLY in: Gallery (read-only after load), FaceCache, Tracker, Writer,
 Hot path: Perception (RetinaFace dominates runtime).
 
 Data efficiency (compute once, reuse everywhere):
-- The gallery cache stores ONE embedding PER PHOTO. The pin strategy (D1) is applied when
-  the gallery loads, so switching strategy never re-embeds a photo.
+- Each gallery cache stores ONE embedding PER PHOTO. Gallery caches are keyed only by
+  inputs that affect embeddings, and compatible variants coexist, so switching away from
+  a normalization and back never re-embeds unchanged photos. The pin strategy (D1) is
+  applied when the gallery loads and is not part of the embedding key.
 - Perception results (boxes, landmarks, det_conf, embeddings) are cached PER FRAME INDEX.
   Each run computes only the frames it needs that are not already cached, so a stride-1 run
   after a stride-3 run, or a full run after a 300-frame window, reuses what exists.
@@ -145,6 +157,7 @@ class Face:
 
 @dataclass(frozen=True)
 class Match:
+    nearest_name: str          # owner of the nearest pin, even when assigned Unknown
     name: str | None      # None means Unknown
     distance: float       # cosine distance to the nearest pin
     confidence: float     # from verification.find_confidence (verify its scale)
@@ -154,7 +167,7 @@ class Gallery:
     pins: np.ndarray        # shape (n_pins, 512), float32, L2-normalised
     pin_owner: list[str]    # pin index -> character name (supports mean or per-photo pins)
     names: list[str]        # unique character names, sorted
-    meta: dict              # model, detector, normalization, strategy, file hashes
+    meta: dict              # embedding config/version key, strategy, source paths + hashes
 
 @dataclass
 class Track:              # used only in M6
@@ -170,8 +183,9 @@ class Track:              # used only in M6
   Merge CLI args with defaults (section 7). Record the source of each default in comments.
 
 `build_models(cfg) -> None`
-  Call DeepFace.build_model("Facenet512") once at startup to preload.
-  Log the model load time separately from processing time.
+  Lazily call DeepFace.build_model("Facenet512") once, immediately before the first
+  uncached gallery image or frame needs embedding. A fully cached replay must not load
+  Facenet512. Log model load time separately from processing time when loading is needed.
 
 `embed_faces(frames: list[np.ndarray], cfg) -> list[list[Face]]`
   Call DeepFace.represent(img_path=frames, model_name="Facenet512",
@@ -180,16 +194,27 @@ class Track:              # used only in M6
   Normalise the output to one list[Face] per input frame, whatever the batch size
   (including the flat-list shape returned for a batch of 1).
   Drop results with face_confidence == 0. Drop None landmarks. Assert unit-norm embeddings.
-  Clip boxes to frame bounds.
+  Clip boxes to frame bounds. If a batched represent() call raises, propagate the error to
+  the caller; the caller retries each frame from that batch individually, caches recovered
+  frames as ok, and marks only frames that still raise as failed.
 
 `load_gallery(ref_dir: Path, cfg) -> Gallery`
   Structure: ref_dir/<Character Name>/*.{jpg,jpeg,png}. The folder name is the label.
-  Embed each image with max_faces=1 and enforce_detection=True. On failure, log a warning
-  and skip the image.
-  Fail loudly if any character ends with 0 valid images.
-  Cache ONE embedding per photo to cache/gallery.npz (embeddings, owner name, source path,
-  file hash). Invalidate per photo: only new or changed photos are re-embedded; the whole
-  cache is invalidated when the model, detector or normalization change.
+  Embed each image with the configured model, detector, normalization and alignment plus
+  max_faces=1, enforce_detection=True and l2_normalize=True. On failure, log a warning and
+  skip the image.
+  Fail loudly if any required character folder has fewer than 2 valid images. Two images
+  per character are the initial minimum; additional owner-curated images may be added
+  incrementally, with 5-10 varied, clear images per character the target.
+  Cache ONE embedding per photo to cache/gallery_<key>.npz (embeddings, owner name, source
+  path, file hash). Reconcile the active cache against the current gallery: embed only new
+  or changed photos and remove entries for deleted photos without re-embedding unchanged
+  ones. The configuration key contains every non-photo upstream embedding input: model,
+  detector, normalization, align, max_faces=1, expand_percentage, L2-normalization setting,
+  and installed versions of deepface, retina-face, tensorflow and opencv. Photo hashes live
+  in the cache entries, not the configuration key, so gallery additions and removals do not
+  discard unchanged embeddings. Compatible keyed caches coexist, so a later return to a
+  previous configuration reuses its embeddings.
   Apply the pin strategy at load time, per cfg.pin_strategy ("mean" or "all"):
   "all" uses the per-photo embeddings directly; "mean" averages per character and
   re-normalises. The strategy is NOT part of the cache key.
@@ -218,9 +243,9 @@ class Track:              # used only in M6
   on single pairs to 1e-5.
 
 `match(face: Face, gallery: Gallery, threshold: float) -> Match`
-  Nearest pin by cosine distance. If distance < threshold, name = pin_owner[i],
-  otherwise None. confidence via verification.find_confidence(distance, "Facenet512",
-  verified, "cosine").
+  Nearest pin by cosine distance. nearest_name = pin_owner[i] regardless of the threshold.
+  If distance < threshold, name = nearest_name, otherwise name = None. confidence via
+  verification.find_confidence(distance, "Facenet512", verified, "cosine").
 
 `iou(a, b) -> float` and `Tracker.update(frame_idx, faces, matches) -> list[tuple[Face, Match, int]]`
   (M6 only)
@@ -236,16 +261,19 @@ class Track:              # used only in M6
 `MatchLogger`
   Writes a CSV with columns:
   frame_idx, face_idx, x, y, w, h, det_conf, nearest_name, distance, threshold,
-  assigned_name, confidence
+  assigned_name, confidence. nearest_name comes directly from Match, including when
+  assigned_name is Unknown; the logger never repeats distance calculation.
   With cfg.debug_crops, saves crops to debug/crops/<frame>_<face>_<nearest>_<dist>.png.
 
 `main()`
   Reader: cv2.VideoCapture. Read fps, width, height and frame count; fail loudly if not opened.
   Writer: cv2.VideoWriter with the same fps and size, fourcc "mp4v".
-  Loop: frame i is processed if i % cfg.stride == 0. Processed frames are grouped into
-  batches of cfg.batch_size for embed_faces. Unprocessed frames reuse the most recent
-  annotations. EVERY frame is written, so the output has the same frame count and duration
-  as the input.
+  Loop: the first frame in the requested window is processed, then every cfg.stride-th
+  frame relative to it. Processed frames are grouped into batches of cfg.batch_size for
+  embed_faces. If a batch raises, retry its frames individually so one bad frame does not
+  discard valid work from the others. Unprocessed frames reuse the most recent annotations.
+  EVERY frame is written, so the output has the same frame count and duration as the input.
+  The final deliverable uses stride 1; larger strides are development/preview modes.
   Progress: log frames processed, faces found and processing fps every N frames.
   End-of-run summary: total time, fps, faces, and the label distribution.
 
@@ -258,19 +286,22 @@ python label_video.py --input data/video-source/nimbus.mp4 \
   --output output/nimbus_labelled.mp4 --ref-dir data/reference-images/
   [--stride 1] [--batch-size 8] [--threshold <default: find_threshold>]
   [--pin-strategy mean|all] [--normalization base|Facenet2018]
-  [--max-faces N] [--start-frame 0] [--max-frames N]
+  [--max-faces N (default: no cap, per R1)] [--start-frame 0] [--max-frames N]
   [--cache-dir cache/] [--no-cache]    # owner-approved 2026-09-26
   [--smooth] [--iou-min 0.3] [--track-ttl 15]
   [--csv output/matches.csv] [--debug-crops] [--debug-landmarks]
 ```
 `--start-frame/--max-frames` let gates and tests run on a short window (e.g. the first 300
 frames) without a full pass. `--cache-dir/--no-cache` control the gallery and FaceCache.
-Every default is shown in --help, with its source noted.
+Every default is shown in --help, with its source noted. Stride stays configurable, but the
+final deliverable is generated with stride 1 so detection is attempted on every frame.
 
 ## 8. Error handling
 - Missing input, ref_dir or character folder: exit non-zero with a clear message.
 - A reference image with no face: skip it with a warning (never crash).
-- A frame that fails in represent(): log it, write the frame un-annotated, continue.
+- A batch that fails in represent(): retry its frames individually. If an individual frame
+  still fails, log it, cache it as failed, write it un-annotated, and continue. Failed
+  frames are retried on the next run.
 - Output directory is created if it is missing.
 
 ## 9. Milestones and gates
@@ -293,30 +324,36 @@ M1 Single frame end-to-end
 
 M2 Gallery
   Build: load_gallery, cache, per-character report.
-  Accept: every character has at least 1 pin; a second run hits the cache and embeds
-  nothing; adding one photo re-embeds only that photo; a leave-one-out sanity check (each
-  photo vs the gallery built without it) is reported under BOTH "mean" and "all".
+  Accept: every character has at least 2 valid images and at least 1 resulting pin; a second
+  run hits the cache, does not load Facenet512, and embeds nothing; adding one photo embeds
+  only that photo; deleting one photo removes only its cache entry; a leave-one-out sanity
+  check (each photo vs the gallery built without it) is reported under BOTH "mean" and
+  "all". Additional photos can be added incrementally without re-embedding unchanged ones.
   STOP: owner review (owner decides pin strategy, D1).
 
 M3 Boxes across the full video (no names)
   Build: Reader/Writer loop, stride, batching, FaceCache, progress logging.
   Accept: output frame count and duration match the input; timings reported for
   stride 1 and stride 3 on the first 300 frames; a second run with the same key hits the
-  FaceCache and runs no detection; a stride-1 run after a stride-3 run computes only the
-  missing frames.
-  STOP: owner review (owner decides stride, D2).
+  FaceCache, does not load Facenet512 and runs no detection; a stride-1 run after a stride-3
+  run computes only the missing frames. Stride 1 is retained for the final deliverable;
+  larger strides remain available for development and preview runs.
+  STOP: owner review (owner decides batch size and any preferred preview stride, D2; final
+  stride 1 is already decided).
 
 M4 Names (completes the vertical slice)
   Build: cosine_distances, match, labels, MatchLogger.
-  Accept: unit tests pass; the full video is labelled; the CSV is written; relabelling at a
-  different threshold replays from the FaceCache with no model calls.
+  Accept: unit tests pass; the full video is labelled at stride 1; the CSV is written with
+  nearest_name retained for Unknown assignments; relabelling at a different threshold
+  replays from the FaceCache without loading Facenet512 or making inference calls.
   STOP: owner review. The slice is verified here before any tuning.
 
 M5 Tune from evidence
   Build: an analysis script or notebook over matches.csv and the FaceCache (distance
   histogram by nearest_name); a contact sheet of crops near the threshold; an A/B of
-  normalization base vs Facenet2018 on the same sampled frames (the only step that
-  re-runs the models, and only on the sample).
+  normalization base vs Facenet2018 on the same sampled frames. This deliberately embeds
+  the gallery and sample frames once under the alternate normalization; both keyed cache
+  variants are retained, so switching between them does not repeat that work.
   Accept: a written recommendation for the threshold and normalization, with evidence.
   No values are changed without owner approval.
   STOP: owner decides (D3). Work halts here until the owner commands M6.
@@ -332,24 +369,32 @@ M7 Package
 Unit (pytest, no model download needed):
 - cosine_distances vs verification.find_distance parity.
 - match: synthetic pins, correct nearest name; above threshold -> None.
+- match: nearest_name is retained when the assigned name is None.
 - iou: identical boxes = 1, disjoint = 0, known overlap value.
 - draw: output shape and dtype equal the input, input not mutated.
 - Tracker: association, expiry, majority vote, tie -> Unknown.
 - Pin strategy: "mean" and "all" derived from the same synthetic per-photo cache.
+- Gallery cache: adding or changing one photo embeds only that photo; deleting one removes
+  only its entry; changing an upstream embedding input selects a different keyed cache;
+  changing pin strategy does not.
+- Lazy model loading: fully cached gallery and FaceCache replay does not call build_model.
 - FaceCache key: changing the threshold, pin strategy, stride or frame window does not
   change it; changing model, normalization, max_faces, align or a library version does.
 - FaceCache status: a zero-face frame is stored as ok and not recomputed; a frame whose
   represent() raises is stored as failed and is retried on the next run.
 - FaceCache reuse: after a stride-3 run, a stride-1 run over the same window requests
   only the frames not already cached.
+- Batch recovery: one failing frame is isolated by individual retries while the other
+  frames in its batch are cached as ok.
 Integration (marked slow):
 - A 10-frame clip runs end-to-end, and the output frame count equals the input's.
 - A gallery built from a fixture folder with one face-less image skips that image.
 
 ## 11. README must contain
 Setup and install; downloading the video (gdown) to data/video-source/; how to build
-data/reference-images/ (folder = label, 5-10 clear frontal photos per character,
-Philosopher's Stone era to match the clip); run commands; caching behaviour; the
+data/reference-images/ (folder = label, initially at least 2 valid images per character,
+growing toward 5-10 clear, varied photos, from the Philosopher's Stone era to match the
+clip); run commands; caching behaviour; the
 architecture diagram; design rationale (why RetinaFace, Facenet512, cosine, the gallery
 approach, stride over downscaling); results summary with runtime and label distribution;
 known failure modes; what I'd do with more time.
@@ -358,9 +403,11 @@ known failure modes; what I'd do with more time.
 D1 Pin strategy: "mean" (one pin per character) vs "all" (per-photo pins, nearest wins).
    Provisional: mean. DECIDED (storage): the cache holds one entry per photo and the
    strategy is applied at load, so both are compared at M2 without re-embedding.
-D2 Stride / batch size, chosen from the M3 timings. Provisional: stride 1, batch 8.
-   Note: only the embedding pass is batched (detection loops per frame), so expect stride,
-   not batch size, to drive runtime.
+D2 Stride / batch size. DECIDED (final output): stride 1, so detection is attempted on every
+   frame. Stride remains configurable for development and preview runs, with the speed vs
+   stale-box trade-off reported at M3. Batch size is chosen from the M3 timings;
+   provisional: 8. Only the embedding pass is batched (detection loops per frame), so
+   expect stride, not batch size, to drive runtime.
 D3 Threshold and normalization, chosen from the M5 evidence.
    Provisional: 0.30 (library default), base.
 
@@ -370,12 +417,12 @@ occlusion (hair, hats, hands); age mismatch between the gallery and the clip;
 extras who resemble a lead (mitigated by the threshold and Unknown).
 
 ## 14. Definition of done
-All deliverables exist; unit tests pass; the output video has the same frame count and
-duration as the input, with boxes and labels; the README explains how to reproduce it;
+All deliverables exist; unit tests pass; the stride-1 output video has the same frame count
+and duration as the input, with boxes and labels; the README explains how to reproduce it;
 decisions D1-D3 are recorded with their evidence.
 
 ```
-data/reference-images/ ─► load_gallery ─► cache/gallery.npz (per photo) ─► pins ─┐
+data/reference-images/ ─► load_gallery ─► cache/gallery_<key>.npz (per photo) ─► pins ─┐
 nimbus.mp4 ─► Reader ─► embed_faces ─► FaceCache ─► match ─► [Tracker] ─► draw ─► Writer ─► output/
                 (RetinaFace+Facenet512)                 └─► MatchLogger ─► matches.csv ─► M5 tuning
 gates:  M0 ─► M1 ─► M2 (D1) ─► M3 (D2) ─► M4 [slice verified] ─► M5 (D3) ║ M6 on command ─► M7
