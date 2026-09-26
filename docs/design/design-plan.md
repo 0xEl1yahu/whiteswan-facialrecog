@@ -58,7 +58,10 @@ identify/build_index`), demography (`DeepFace.analyze`), anti-spoofing, web UI, 
 
 Repo layout:
 ```
-label_video.py                  the pipeline (single file)
+docs/design/design-plan.md      approved design specification
+docs/implementation/           milestone implementation plans
+label_video.py                  executable and compatibility facade
+face_labeller/                  focused pipeline modules and execution core
 tests/                          pytest suite (unit + slow integration)
 data/video-source/nimbus.mp4    input clip            (gitignored)
 data/reference-images/<Name>/   owner-curated gallery (gitignored)
@@ -177,7 +180,29 @@ class Track:              # used only in M6
     votes: Counter[str]   # name -> count (Unknown counted as "__unknown__")
 ```
 
-## 6. Module specs (all in label_video.py)
+## 6. Module specs
+
+The original single-file layout is amended by the owner-approved modularization design in
+`docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`. The public command
+remains `python label_video.py ...`; `label_video.py` becomes a thin executable and
+compatibility facade over the `face_labeller/` package. Existing data contracts, CLI flags,
+cache formats, matching rules, and output formats remain unchanged.
+
+Module ownership is:
+
+- `face_labeller/contracts.py`: domain records and fixed domain constants.
+- `face_labeller/config.py`: `Config`, CLI parsing, validation, and defaults.
+- `face_labeller/perception.py`: lazy model loading, DeepFace conversion, and batch fallback.
+- `face_labeller/cache.py`: shared cache identity helpers and `FaceCache` persistence.
+- `face_labeller/gallery.py`: gallery discovery, cache reconciliation, pins, and diagnostics.
+- `face_labeller/recognition.py`: pure cosine distance and matching.
+- `face_labeller/rendering.py`: pure deterministic drawing.
+- `face_labeller/evidence.py`: CSV logging and optional debug crops.
+- `face_labeller/video.py`: video inspection, frame planning, and streaming execution.
+- `face_labeller/core.py`: the single end-to-end execution coordinator.
+
+Dependencies point inward toward contracts; no package module imports `label_video.py`, and
+lower-level modules never call back into `core.py`.
 
 `load_config(args) -> Config`
   Merge CLI args with defaults (section 7). Record the source of each default in comments.
@@ -237,6 +262,18 @@ class Track:              # used only in M6
   those to embed_faces. Written incrementally so an interrupted run resumes from the last
   completed batch.
 
+`inspect_video(input_path: Path) -> VideoMetadata`
+  Open the selected `--input` path without loading a gallery or model; validate capture,
+  FPS, dimensions, and frame count; return immutable metadata; and release the capture on
+  every path.
+
+`build_frame_plan(metadata, start_frame, max_frames, stride) -> FramePlan`
+  Purely calculate the half-open output window and ordered absolute selected indices. The
+  first frame in the requested window is always selected. After the compatible FaceCache
+  opens, `core.run` reports total/window/written/selected/cached/inference-needed counts
+  before gallery or model work. Failed cache entries remain inference-needed; ok empty-face
+  entries remain hits.
+
 `cosine_distances(v: np.ndarray, pins: np.ndarray) -> np.ndarray`
   Pure numpy: 1 - pins @ v (both L2-normalised). Returns shape (n_pins,).
   Unit test: must agree with deepface.modules.verification.find_distance(a, b, "cosine")
@@ -265,8 +302,11 @@ class Track:              # used only in M6
   assigned_name is Unknown; the logger never repeats distance calculation.
   With cfg.debug_crops, saves crops to debug/crops/<frame>_<face>_<nearest>_<dist>.png.
 
-`main()`
+`process_video(cfg, gallery=None, *, metadata=None, plan=None, face_cache=None)`
   Reader: cv2.VideoCapture. Read fps, width, height and frame count; fail loudly if not opened.
+  When the core supplies preflight metadata, a frame plan, and an open FaceCache, verify the
+  streaming capture metadata against the plan and reuse those objects. Direct callers may
+  omit all three and receive the same internally planned behavior.
   Writer: cv2.VideoWriter with the same fps and size, fourcc "mp4v".
   Loop: the first frame in the requested window is processed, then every cfg.stride-th
   frame relative to it. Processed frames are grouped into batches of cfg.batch_size for
@@ -277,6 +317,13 @@ class Track:              # used only in M6
   Progress: log frames processed, faces found and processing fps every N frames.
   End-of-run summary: total time, fps, faces, and the label distribution.
 
+`core.run(cfg) -> RunSummary`
+  Validate cross-path constraints, inspect the input, build the frame plan, open the
+  compatible FaceCache, report pending work, load the gallery, invoke `process_video`, and
+  print the existing final timing/result summary. It is the only end-to-end execution
+  coordinator. `label_video.main()` parses arguments, calls the core, and maps errors to the
+  existing process exit codes.
+
 Optional post-step (M6): ffmpeg re-mux of audio from the input, plus re-encode to H.264 for
 browser playback. Documented in the README, not required to run the script.
 
@@ -285,7 +332,7 @@ browser playback. Documented in the README, not required to run the script.
 python label_video.py --input data/video-source/nimbus.mp4 \
   --output output/nimbus_labelled.mp4 --ref-dir data/reference-images/
   [--stride 1] [--batch-size 8] [--threshold <default: find_threshold>]
-  [--pin-strategy mean|all] [--normalization base|Facenet2018]
+  [--pin-strategy mean|all (default: all)] [--normalization base|Facenet2018]
   [--max-faces N (default: no cap, per R1)] [--start-frame 0] [--max-frames N]
   [--cache-dir cache/] [--no-cache]    # owner-approved 2026-09-26
   [--smooth] [--iou-min 0.3] [--track-ttl 15]
@@ -343,9 +390,22 @@ M3 Boxes across the full video (no names)
 
 M4 Names (completes the vertical slice)
   Build: cosine_distances, match, labels, MatchLogger.
-  Accept: unit tests pass; the full video is labelled at stride 1; the CSV is written with
-  nearest_name retained for Unknown assignments; relabelling at a different threshold
-  replays from the FaceCache without loading Facenet512 or making inference calls.
+  Before the full run, profile short uncached windows from multiple parts of the clip and
+  separate RetinaFace, Facenet512, model-load, and I/O/render costs as far as the installed
+  stack permits. Reuse those cached frames. The per-frame RetinaFace path remains the
+  correctness baseline. Any event-driven gate or tracking substitute must report its
+  missed-face latency/false-negative risk and requires owner approval because it can weaken
+  R1; heavyweight models remain loaded while idle rather than restarting per trigger.
+  STOP after profiling: owner chooses the per-frame baseline, an R1-preserving measured
+  optimization, or a separately specified event-driven trade-off before the full run.
+  Accept: unit tests pass; after the runtime checkpoint is reviewed, the full video is
+  labelled at stride 1; the CSV is written with nearest_name retained for Unknown
+  assignments; relabelling at a different threshold replays from the FaceCache without
+  loading Facenet512 or making inference calls.
+  Before the full-video run, complete the approved modularization and video-preflight plan
+  in `docs/superpowers/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
+  prove CLI/data/cache compatibility and short cold/warm output parity. This is an M4
+  refactor checkpoint, not a new product milestone.
   STOP: owner review. The slice is verified here before any tuning.
 
 M5 Tune from evidence
@@ -386,6 +446,11 @@ Unit (pytest, no model download needed):
   only the frames not already cached.
 - Batch recovery: one failing frame is isolated by individual retries while the other
   frames in its batch are cached as ok.
+- Video preflight: invalid metadata/window values fail before gallery/model work; exact
+  selected indices are calculated relative to the requested start; cached ok/failed/absent
+  states produce the correct inference-needed set; reopened metadata must match the plan.
+- Compatibility facade: established application names continue to resolve from
+  `label_video`, while tests patch implementation dependencies in their owning modules.
 Integration (marked slow):
 - A 10-frame clip runs end-to-end, and the output frame count equals the input's.
 - A gallery built from a fixture folder with one face-less image skips that image.
@@ -400,14 +465,17 @@ approach, stride over downscaling); results summary with runtime and label distr
 known failure modes; what I'd do with more time.
 
 ## 12. Open decisions (OWNER: Eli)
-D1 Pin strategy: "mean" (one pin per character) vs "all" (per-photo pins, nearest wins).
-   Provisional: mean. DECIDED (storage): the cache holds one entry per photo and the
-   strategy is applied at load, so both are compared at M2 without re-embedding.
-D2 Stride / batch size. DECIDED (final output): stride 1, so detection is attempted on every
-   frame. Stride remains configurable for development and preview runs, with the speed vs
-   stale-box trade-off reported at M3. Batch size is chosen from the M3 timings;
-   provisional: 8. Only the embedding pass is batched (detection loops per frame), so
-   expect stride, not batch size, to drive runtime.
+D1 Pin strategy: DECIDED by Eli on 2026-09-26: "all" (per-photo pins, nearest wins).
+   M2 leave-one-out gave identical aggregate results for "mean" and "all" with two photos
+   per character: nearest identity 10/10, 4 assigned, 6 Unknown, 0 wrong at threshold 0.30.
+   "all" preserves both examples instead of averaging their variation. Storage remains
+   one entry per photo, and the strategy is applied at load without re-embedding.
+D2 Stride / batch size. DECIDED by Eli on 2026-09-26: batch size 8; stride 3 for quick
+   engineering smoke tests; stride 2 for reviewable previews; and stride 1 for the final
+   output, so detection is attempted on every final frame. At approximately 30 fps,
+   stride 2 can carry a box for at most one skipped frame (about 33 ms), while halving the
+   selected detection work. Only the embedding pass is batched because detection loops per
+   frame, so stride—not batch size—drives runtime. The CLI default remains stride 1.
 D3 Threshold and normalization, chosen from the M5 evidence.
    Provisional: 0.30 (library default), base.
 
