@@ -35,7 +35,7 @@ def test_cli_defaults_match_design_spec() -> None:
     assert cfg.stride == 1
     assert cfg.batch_size == 8
     assert cfg.threshold == pytest.approx(0.30)
-    assert cfg.pin_strategy == "mean"
+    assert cfg.pin_strategy == "all"
     assert cfg.normalization == "base"
     assert cfg.max_faces is None
     assert cfg.start_frame == 0

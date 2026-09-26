@@ -58,6 +58,8 @@ identify/build_index`), demography (`DeepFace.analyze`), anti-spoofing, web UI, 
 
 Repo layout:
 ```
+docs/design/design-plan.md      approved design specification
+docs/implementation/           milestone implementation plans
 label_video.py                  the pipeline (single file)
 tests/                          pytest suite (unit + slow integration)
 data/video-source/nimbus.mp4    input clip            (gitignored)
@@ -285,7 +287,7 @@ browser playback. Documented in the README, not required to run the script.
 python label_video.py --input data/video-source/nimbus.mp4 \
   --output output/nimbus_labelled.mp4 --ref-dir data/reference-images/
   [--stride 1] [--batch-size 8] [--threshold <default: find_threshold>]
-  [--pin-strategy mean|all] [--normalization base|Facenet2018]
+  [--pin-strategy mean|all (default: all)] [--normalization base|Facenet2018]
   [--max-faces N (default: no cap, per R1)] [--start-frame 0] [--max-frames N]
   [--cache-dir cache/] [--no-cache]    # owner-approved 2026-09-26
   [--smooth] [--iou-min 0.3] [--track-ttl 15]
@@ -400,9 +402,11 @@ approach, stride over downscaling); results summary with runtime and label distr
 known failure modes; what I'd do with more time.
 
 ## 12. Open decisions (OWNER: Eli)
-D1 Pin strategy: "mean" (one pin per character) vs "all" (per-photo pins, nearest wins).
-   Provisional: mean. DECIDED (storage): the cache holds one entry per photo and the
-   strategy is applied at load, so both are compared at M2 without re-embedding.
+D1 Pin strategy: DECIDED by Eli on 2026-09-26: "all" (per-photo pins, nearest wins).
+   M2 leave-one-out gave identical aggregate results for "mean" and "all" with two photos
+   per character: nearest identity 10/10, 4 assigned, 6 Unknown, 0 wrong at threshold 0.30.
+   "all" preserves both examples instead of averaging their variation. Storage remains
+   one entry per photo, and the strategy is applied at load without re-embedding.
 D2 Stride / batch size. DECIDED (final output): stride 1, so detection is attempted on every
    frame. Stride remains configurable for development and preview runs, with the speed vs
    stale-box trade-off reported at M3. Batch size is chosen from the M3 timings;
