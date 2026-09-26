@@ -9,7 +9,7 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: M2 incremental gallery complete and awaiting owner review.**
+> **Status: M3 resumable video box pipeline complete and awaiting owner review.**
 > The
 > source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
 > milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
@@ -91,7 +91,7 @@ derived from the same records and never cause re-embedding.
 
 ## Usage
 
-Once built:
+Run the current pipeline:
 ```bash
 python label_video.py \
   --input data/video-source/nimbus.mp4 \
@@ -101,6 +101,10 @@ python label_video.py \
 Run `python label_video.py --help` to see every option and where each default comes from.
 Useful options:
 - `--start-frame` and `--max-frames` run on a short window.
+- `--stride 3` gives a quick engineering smoke test. Use `--stride 2` for review previews:
+  it halves detection work while carrying boxes across at most one skipped frame. Final
+  output remains stride 1 so every frame is inspected.
+- `--batch-size` controls the number of selected frames recovered together (default: 8).
 - `--threshold` changes the match cut-off.
 - `--pin-strategy mean|all` sets how photos become pins (default: owner-selected `all`).
 - `--no-cache` forces a full recompute.
@@ -117,7 +121,7 @@ Each milestone ends with a stop for the owner to test and review.
 | M0 | Environment, versions, determinism check | |
 | M1 | One frame, end to end: boxes and landmarks | |
 | M2 | Gallery, per-photo cache, leave-one-out check | D1: `all` selected |
-| M3 | Boxes across the full video, FaceCache, timings | D2: batch size and preview stride; final stride is 1 |
+| M3 | Boxes across the full video, FaceCache, timings | D2: batch 8; smoke stride 3; preview stride 2; final stride 1 |
 | M4 | Names and `matches.csv`. **First complete working version, checked here.** | |
 | M5 | Tuning evidence: distance histograms, near-threshold crops | D3: threshold and normalisation |
 | M6 | *Only on owner command:* smoother labels, audio put back, H.264 encode | |
@@ -186,5 +190,24 @@ section, added after M4 and M5, will report how often each happens in this clip.
   distinguish the two strategies.
 - D1: Eli selected `all`, preserving both reference examples as separate pins. The dated
   baseline is retained in `docs/results/m2-gallery-baseline.md` for future comparisons.
+
+### M3 video and FaceCache gate
+
+- The first 300 frames were written at 1920×1080 and 29.97 fps. The output contains 300
+  frames and lasts 10.010 s, matching that input window.
+- A cold stride-3 preview processed 100 selected frames in 279.678 s, found 418 faces,
+  and cached all 100 results with no failures.
+- A stride-1 continuation reused those 100 entries and computed only the 200 gaps in
+  536.171 s. Together, the two runs populated each of the first 300 frames exactly once;
+  they found 1,262 face detections with no failed frames.
+- A fully warm stride-1 replay wrote all 300 frames in 2.724 s with 300 cache hits, zero
+  misses, zero model-load time, and zero perception time.
+- A one-frame uncached timing probe measured 6.014 s of lazy model loading inside 10.888 s
+  of perception. The full cold stride-1 run was deliberately not repeated after the cache
+  was complete, avoiding 300 redundant RetinaFace calculations.
+- Batch size 8 completed without recovery or memory failure. RetinaFace still detects one
+  frame at a time, so stride drives runtime. D2 is decided: stride 3 for quick smoke tests,
+  stride 2 for review previews, and stride 1 for final output.
+- The dated baseline is retained in `docs/results/m3-video-cache-baseline.md`.
 
 *Runtime, frames per second, and label distribution are added after M4.*

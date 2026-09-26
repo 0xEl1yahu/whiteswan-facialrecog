@@ -10,6 +10,7 @@ from importlib import metadata as importlib_metadata
 import json
 from pathlib import Path
 import tempfile
+import time
 from typing import Any, Literal, Sequence
 
 import cv2
@@ -38,6 +39,8 @@ DEFAULT_IOU_MIN = 0.3
 DEFAULT_TRACK_TTL = 15
 DEFAULT_EXPAND_PERCENTAGE = 0  # DeepFace default; part of cache identity.
 _MODEL_BUILT = False
+_MODEL_LOAD_SECONDS_TOTAL = 0.0
+PROGRESS_EVERY_FRAMES = 100  # M3 reporting interval; does not affect output.
 
 # Fixed deterministic BGR presentation palette from the approved rendering design.
 BOX_COLORS: dict[str | None, tuple[int, int, int]] = {
@@ -124,6 +127,24 @@ class Config:
     expand_percentage: int = DEFAULT_EXPAND_PERCENTAGE
 
 
+@dataclass(frozen=True)
+class RunSummary:
+    elapsed_seconds: float
+    model_seconds: float
+    perception_seconds: float
+    processed_frames: int
+    written_frames: int
+    faces: int
+    cache_hits: int
+    cache_misses: int
+    failures: int
+    processing_fps: float
+    fps: float
+    width: int
+    height: int
+    label_distribution: dict[str, int]
+
+
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed <= 0:
@@ -196,10 +217,12 @@ def _get_deepface() -> Any:
 
 def build_models(cfg: Config) -> None:
     """Load Facenet512 once, only when an uncached embedding path requests it."""
-    global _MODEL_BUILT
+    global _MODEL_BUILT, _MODEL_LOAD_SECONDS_TOTAL
     if _MODEL_BUILT:
         return
+    started = time.perf_counter()
     _get_deepface().build_model(cfg.model_name)
+    _MODEL_LOAD_SECONDS_TOTAL += time.perf_counter() - started
     _MODEL_BUILT = True
 
 
@@ -298,6 +321,7 @@ def embed_faces(frames: list[np.ndarray], cfg: Config) -> list[list[Face]]:
 
 _GALLERY_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
 _GALLERY_CACHE_SCHEMA_VERSION = 1
+_FACE_CACHE_SCHEMA_VERSION = 1
 _VERSION_DISTRIBUTIONS = {
     "deepface": "deepface",
     "retinaface": "retina-face",
@@ -362,6 +386,35 @@ def gallery_cache_key(cfg: Config, versions: dict[str, str]) -> str:
     """Hash only inputs that change gallery embeddings, never photo state."""
     encoded = json.dumps(
         _gallery_cache_metadata(cfg, versions),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _face_cache_metadata(
+    video_path: Path, cfg: Config, versions: dict[str, str]
+) -> dict:
+    return {
+        "schema_version": _FACE_CACHE_SCHEMA_VERSION,
+        "video_sha256": _file_sha256(video_path),
+        "model_name": cfg.model_name,
+        "detector_backend": cfg.detector_backend,
+        "normalization": cfg.normalization,
+        "align": cfg.align,
+        "max_faces": cfg.max_faces,
+        "expand_percentage": cfg.expand_percentage,
+        "l2_normalize": True,
+        "versions": dict(sorted(versions.items())),
+    }
+
+
+def face_cache_key(
+    video_path: Path, cfg: Config, versions: dict[str, str]
+) -> str:
+    """Hash every upstream perception input and no downstream choice."""
+    encoded = json.dumps(
+        _face_cache_metadata(video_path, cfg, versions),
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -528,6 +581,441 @@ def _write_gallery_cache(
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
+
+
+class FaceCache:
+    """Persistent per-frame perception results with explicit retryable states."""
+
+    def __init__(
+        self,
+        video_path: Path,
+        cfg: Config,
+        versions: dict[str, str] | None = None,
+    ) -> None:
+        self._enabled = cfg.use_cache
+        self._metadata = _face_cache_metadata(
+            video_path, cfg, versions if versions is not None else _installed_versions()
+        )
+        key = hashlib.sha256(
+            json.dumps(
+                self._metadata, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        safe_stem = "".join(
+            character if character.isalnum() or character in {"-", "_"} else "_"
+            for character in video_path.stem
+        ) or "video"
+        self.path = cfg.cache_dir / f"faces_{safe_stem}_{key}.npz"
+        self._frames: dict[int, tuple[Literal["ok", "failed"], list[Face]]] = {}
+        if self._enabled and self.path.is_file():
+            self._load()
+
+    def status(self, frame_idx: int) -> Literal["absent", "ok", "failed"]:
+        entry = self._frames.get(frame_idx)
+        return "absent" if entry is None else entry[0]
+
+    def get(self, frame_idx: int) -> list[Face] | None:
+        entry = self._frames.get(frame_idx)
+        if entry is None or entry[0] != "ok":
+            return None
+        return list(entry[1])
+
+    def put_ok(self, frame_idx: int, faces: Sequence[Face]) -> None:
+        if frame_idx < 0:
+            raise ValueError("frame index must be non-negative")
+        validated: list[Face] = []
+        for face in faces:
+            validated.append(
+                Face(
+                    box=tuple(int(value) for value in face.box),
+                    landmarks={
+                        str(name): (int(point[0]), int(point[1]))
+                        for name, point in face.landmarks.items()
+                    },
+                    embedding=_validated_embedding(face.embedding).copy(),
+                    det_conf=float(face.det_conf),
+                )
+            )
+        self._frames[frame_idx] = ("ok", validated)
+
+    def put_failed(self, frame_idx: int) -> None:
+        if frame_idx < 0:
+            raise ValueError("frame index must be non-negative")
+        self._frames[frame_idx] = ("failed", [])
+
+    def missing(self, frame_indices: Sequence[int]) -> list[int]:
+        return [index for index in frame_indices if self.status(index) != "ok"]
+
+    def flush(self) -> None:
+        if not self._enabled:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        frame_indices = sorted(self._frames)
+        statuses: list[str] = []
+        offsets = [0]
+        faces: list[Face] = []
+        for frame_idx in frame_indices:
+            status, frame_faces = self._frames[frame_idx]
+            statuses.append(status)
+            if status == "ok":
+                faces.extend(frame_faces)
+            offsets.append(len(faces))
+
+        boxes = np.asarray([face.box for face in faces], dtype=np.int32).reshape(-1, 4)
+        confidences = np.asarray(
+            [face.det_conf for face in faces], dtype=np.float32
+        )
+        embeddings = (
+            np.stack([face.embedding for face in faces]).astype(np.float32)
+            if faces
+            else np.empty((0, 512), dtype=np.float32)
+        )
+        landmarks_json = np.asarray(
+            [json.dumps(face.landmarks, sort_keys=True) for face in faces],
+            dtype=np.str_,
+        )
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                np.savez_compressed(
+                    temporary,
+                    meta_json=np.asarray(json.dumps(self._metadata, sort_keys=True)),
+                    frame_indices=np.asarray(frame_indices, dtype=np.int64),
+                    statuses=np.asarray(statuses, dtype=np.str_),
+                    face_offsets=np.asarray(offsets, dtype=np.int64),
+                    boxes=boxes,
+                    landmarks_json=landmarks_json,
+                    det_confidences=confidences,
+                    embeddings=embeddings,
+                )
+            temporary_path.replace(self.path)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+
+    def _load(self) -> None:
+        try:
+            with np.load(self.path, allow_pickle=False) as stored:
+                required = {
+                    "meta_json",
+                    "frame_indices",
+                    "statuses",
+                    "face_offsets",
+                    "boxes",
+                    "landmarks_json",
+                    "det_confidences",
+                    "embeddings",
+                }
+                if set(stored.files) != required:
+                    raise ValueError("cache fields do not match schema")
+                metadata = json.loads(str(stored["meta_json"].item()))
+                if metadata != self._metadata:
+                    raise ValueError("cache metadata does not match configuration")
+                frame_indices = np.asarray(stored["frame_indices"], dtype=np.int64)
+                statuses = stored["statuses"].astype(str).tolist()
+                offsets = np.asarray(stored["face_offsets"], dtype=np.int64)
+                boxes = np.asarray(stored["boxes"], dtype=np.int32)
+                landmarks_json = stored["landmarks_json"].astype(str).tolist()
+                confidences = np.asarray(
+                    stored["det_confidences"], dtype=np.float32
+                )
+                embeddings = np.asarray(stored["embeddings"], dtype=np.float32)
+            self._frames = self._decode_frames(
+                frame_indices,
+                statuses,
+                offsets,
+                boxes,
+                landmarks_json,
+                confidences,
+                embeddings,
+            )
+        except Exception as error:
+            self._frames = {}
+            print(f"WARNING: ignored face cache {self.path}: {error}")
+
+    @staticmethod
+    def _decode_frames(
+        frame_indices: np.ndarray,
+        statuses: list[str],
+        offsets: np.ndarray,
+        boxes: np.ndarray,
+        landmarks_json: list[str],
+        confidences: np.ndarray,
+        embeddings: np.ndarray,
+    ) -> dict[int, tuple[Literal["ok", "failed"], list[Face]]]:
+        frame_count = len(frame_indices)
+        face_count = len(boxes)
+        if (
+            len(statuses) != frame_count
+            or offsets.shape != (frame_count + 1,)
+            or len(set(int(index) for index in frame_indices)) != frame_count
+            or any(int(index) < 0 for index in frame_indices)
+            or offsets[0] != 0
+            or offsets[-1] != face_count
+            or np.any(np.diff(offsets) < 0)
+            or boxes.shape != (face_count, 4)
+            or len(landmarks_json) != face_count
+            or confidences.shape != (face_count,)
+            or embeddings.shape != (face_count, 512)
+            or any(status not in {"ok", "failed"} for status in statuses)
+        ):
+            raise ValueError("cache array shapes or values are invalid")
+
+        decoded: dict[int, tuple[Literal["ok", "failed"], list[Face]]] = {}
+        for position, raw_index in enumerate(frame_indices):
+            frame_idx = int(raw_index)
+            status = statuses[position]
+            start = int(offsets[position])
+            stop = int(offsets[position + 1])
+            if status == "failed" and start != stop:
+                raise ValueError("failed cache frame contains faces")
+            frame_faces: list[Face] = []
+            for face_index in range(start, stop):
+                raw_landmarks = json.loads(landmarks_json[face_index])
+                if not isinstance(raw_landmarks, dict):
+                    raise ValueError("cached landmarks are invalid")
+                landmarks = {
+                    str(name): (int(point[0]), int(point[1]))
+                    for name, point in raw_landmarks.items()
+                }
+                frame_faces.append(
+                    Face(
+                        box=tuple(int(value) for value in boxes[face_index]),
+                        landmarks=landmarks,
+                        embedding=_validated_embedding(embeddings[face_index]),
+                        det_conf=float(confidences[face_index]),
+                    )
+                )
+            decoded[frame_idx] = (status, frame_faces)  # type: ignore[assignment]
+        return decoded
+
+
+def selected_frame_indices(start: int, stop: int, stride: int) -> list[int]:
+    """Return absolute selected indices, with stride relative to the window start."""
+    if start < 0:
+        raise ValueError("start frame must be non-negative")
+    if stop < start:
+        raise ValueError("stop frame must not precede start frame")
+    if stride <= 0:
+        raise ValueError("stride must be greater than zero")
+    return list(range(start, stop, stride))
+
+
+def process_batch_with_fallback(
+    indexed_frames: Sequence[tuple[int, np.ndarray]], cfg: Config
+) -> dict[int, tuple[Literal["ok", "failed"], list[Face]]]:
+    """Embed a batch, retrying frames separately if the batch raises."""
+    if not indexed_frames:
+        return {}
+    frame_indices = [frame_idx for frame_idx, _ in indexed_frames]
+    frames = [frame for _, frame in indexed_frames]
+    try:
+        faces_by_frame = embed_faces(frames, cfg)
+        if len(faces_by_frame) != len(indexed_frames):
+            raise ValueError("perception result count does not match frame batch")
+        return {
+            frame_idx: ("ok", faces)
+            for frame_idx, faces in zip(
+                frame_indices, faces_by_frame, strict=True
+            )
+        }
+    except Exception as batch_error:
+        print(f"WARNING: batch perception failed; retrying frames: {batch_error}")
+
+    recovered: dict[int, tuple[Literal["ok", "failed"], list[Face]]] = {}
+    for frame_idx, frame in indexed_frames:
+        try:
+            per_frame = embed_faces([frame], cfg)
+            if len(per_frame) != 1:
+                raise ValueError("perception result count does not match one frame")
+            recovered[frame_idx] = ("ok", per_frame[0])
+        except Exception as frame_error:
+            print(f"WARNING: frame {frame_idx} perception failed: {frame_error}")
+            recovered[frame_idx] = ("failed", [])
+    return recovered
+
+
+def _unknown_matches(faces: Sequence[Face]) -> list[Match]:
+    return [
+        Match(
+            nearest_name="Unknown",
+            name=None,
+            distance=float("inf"),
+            confidence=0.0,
+        )
+        for _ in faces
+    ]
+
+
+def process_video(cfg: Config, gallery: Gallery | None = None) -> RunSummary:
+    """Write the requested video window with cached Unknown face annotations."""
+    del gallery  # M3 renders Unknown; M4 consumes this argument for identity matching.
+    if not cfg.input_path.is_file():
+        raise ValueError(f"cannot open input video: {cfg.input_path}")
+    if cfg.input_path.resolve() == cfg.output_path.resolve():
+        raise ValueError("input and output video paths must differ")
+
+    run_started = time.perf_counter()
+    model_seconds_before = _MODEL_LOAD_SECONDS_TOTAL
+    capture = cv2.VideoCapture(str(cfg.input_path))
+    if not capture.isOpened():
+        capture.release()
+        raise ValueError(f"cannot open input video: {cfg.input_path}")
+
+    writer: Any | None = None
+    temporary_output: Path | None = None
+    succeeded = False
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not np.isfinite(fps) or fps <= 0:
+            raise ValueError(f"input video has invalid FPS: {fps}")
+        if width <= 0 or height <= 0:
+            raise ValueError(f"input video has invalid size: {width}x{height}")
+        if frame_count <= 0:
+            raise ValueError(f"input video has invalid frame count: {frame_count}")
+        if cfg.start_frame >= frame_count:
+            raise ValueError(
+                f"start frame {cfg.start_frame} is outside {frame_count}-frame input"
+            )
+
+        stop_frame = frame_count
+        if cfg.max_frames is not None:
+            stop_frame = min(frame_count, cfg.start_frame + cfg.max_frames)
+        selected = selected_frame_indices(cfg.start_frame, stop_frame, cfg.stride)
+        selected_set = set(selected)
+
+        cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
+        suffix = cfg.output_path.suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(
+            dir=cfg.output_path.parent,
+            prefix=f".{cfg.output_path.stem}.",
+            suffix=suffix,
+            delete=False,
+        ) as temporary:
+            temporary_output = Path(temporary.name)
+        writer = cv2.VideoWriter(
+            str(temporary_output),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            (width, height),
+        )
+        if not writer.isOpened():
+            raise ValueError(f"cannot open output video: {cfg.output_path}")
+
+        cache = FaceCache(cfg.input_path, cfg)
+        initial_status = {frame_idx: cache.status(frame_idx) for frame_idx in selected}
+        cache_hits = sum(status == "ok" for status in initial_status.values())
+        cache_misses = len(selected) - cache_hits
+        perception_seconds = 0.0
+        written_frames = 0
+        last_faces: list[Face] = []
+        pending_frames: list[tuple[int, np.ndarray]] = []
+        pending_missing: list[tuple[int, np.ndarray]] = []
+        max_pending_frames = max(1, cfg.batch_size * cfg.stride)
+
+        def flush_pending() -> None:
+            nonlocal perception_seconds, written_frames, last_faces
+            if not pending_frames:
+                return
+            if pending_missing:
+                perception_started = time.perf_counter()
+                batch_results = process_batch_with_fallback(pending_missing, cfg)
+                perception_seconds += time.perf_counter() - perception_started
+                for frame_idx, (status, faces) in batch_results.items():
+                    if status == "ok":
+                        cache.put_ok(frame_idx, faces)
+                    else:
+                        cache.put_failed(frame_idx)
+                cache.flush()
+
+            for frame_idx, frame in pending_frames:
+                if frame_idx in selected_set:
+                    cached_faces = cache.get(frame_idx)
+                    last_faces = [] if cached_faces is None else cached_faces
+                rendered = draw(frame, last_faces, _unknown_matches(last_faces), cfg)
+                writer.write(rendered)
+                written_frames += 1
+                if written_frames % PROGRESS_EVERY_FRAMES == 0:
+                    elapsed = max(time.perf_counter() - run_started, 1e-9)
+                    print(
+                        f"frames_written={written_frames} "
+                        f"faces={sum(len(cache.get(index) or []) for index in selected)} "
+                        f"fps={written_frames / elapsed:.2f}"
+                    )
+            pending_frames.clear()
+            pending_missing.clear()
+
+        if cfg.start_frame:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, cfg.start_frame)
+        for frame_idx in range(cfg.start_frame, stop_frame):
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                raise RuntimeError(f"failed to read input frame {frame_idx}")
+            if frame.shape[:2] != (height, width):
+                raise RuntimeError(
+                    f"input frame {frame_idx} has unexpected size "
+                    f"{frame.shape[1]}x{frame.shape[0]}"
+                )
+            pending_frames.append((frame_idx, frame))
+            if frame_idx in selected_set and cache.status(frame_idx) != "ok":
+                pending_missing.append((frame_idx, frame))
+            if (
+                len(pending_missing) >= cfg.batch_size
+                or len(pending_frames) >= max_pending_frames
+            ):
+                flush_pending()
+        flush_pending()
+
+        expected_written = stop_frame - cfg.start_frame
+        if written_frames != expected_written:
+            raise RuntimeError(
+                f"wrote {written_frames} frames; expected {expected_written}"
+            )
+        writer.release()
+        writer = None
+        capture.release()
+        faces = sum(len(cache.get(index) or []) for index in selected)
+        failures = sum(cache.status(index) == "failed" for index in selected)
+        temporary_output.replace(cfg.output_path)
+        temporary_output = None
+        succeeded = True
+        elapsed_seconds = time.perf_counter() - run_started
+        model_seconds = _MODEL_LOAD_SECONDS_TOTAL - model_seconds_before
+        return RunSummary(
+            elapsed_seconds=elapsed_seconds,
+            model_seconds=model_seconds,
+            perception_seconds=perception_seconds,
+            processed_frames=len(selected),
+            written_frames=written_frames,
+            faces=faces,
+            cache_hits=cache_hits,
+            cache_misses=cache_misses,
+            failures=failures,
+            processing_fps=(
+                cache_misses / perception_seconds if perception_seconds > 0 else 0.0
+            ),
+            fps=fps,
+            width=width,
+            height=height,
+            label_distribution={"Unknown": faces},
+        )
+    finally:
+        capture.release()
+        if writer is not None:
+            writer.release()
+        if not succeeded and temporary_output is not None:
+            temporary_output.unlink(missing_ok=True)
 
 
 def leave_one_out_report(
@@ -745,3 +1233,22 @@ def draw(
                     )
 
     return rendered
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    cfg = load_config(parse_args(argv))
+    summary = process_video(cfg)
+    print(
+        f"complete elapsed={summary.elapsed_seconds:.3f}s "
+        f"model={summary.model_seconds:.3f}s "
+        f"perception={summary.perception_seconds:.3f}s "
+        f"processing_fps={summary.processing_fps:.2f} "
+        f"processed={summary.processed_frames} written={summary.written_frames} "
+        f"faces={summary.faces} failures={summary.failures} "
+        f"cache_hits={summary.cache_hits} cache_misses={summary.cache_misses}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
