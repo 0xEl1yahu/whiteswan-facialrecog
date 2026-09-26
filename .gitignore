@@ -1,6 +1,6 @@
 # Inputs (owner-supplied, never committed)
-data/reference-images/
-data/video-source/
+data/reference-images
+data/video-source
 
 # Generated
 cache/
