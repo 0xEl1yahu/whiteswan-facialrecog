@@ -9,8 +9,8 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: M4 matching and runtime profiling checkpoint complete; awaiting the owner's
-> runtime-path decision before the full-video run.**
+> **Status: M4 matching, runtime profiling, and modularization checkpoint complete;
+> awaiting owner approval before the full 3,044-frame run.**
 > The
 > source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
 > milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
@@ -38,6 +38,27 @@ nimbus.mp4 ─► read frame ─► RetinaFace + Facenet512 ─► FaceCache ─
    otherwise.
 4. **Render.** Every input frame is written, so the output has the same frame count and
    duration as the input. Frames skipped by `stride` reuse the last annotations.
+
+Before loading the gallery or either model, the CLI inspects the input and prints the
+total frames, requested window, frames written, selected frames, reusable cache entries,
+and frames still requiring inference. Supplying a video path is therefore enough to
+calculate the exact work plan up front.
+
+### Code structure
+
+`label_video.py` is a thin CLI and backwards-compatible import facade. Implementation is
+split by responsibility under `face_labeller/`:
+
+- `contracts.py` and `config.py`: stable data contracts and CLI configuration.
+- `cache.py`, `perception.py`, and `gallery.py`: cache identity/storage, DeepFace model
+  work, and owner-curated gallery preparation.
+- `recognition.py`, `rendering.py`, and `evidence.py`: pure matching, drawing, and CSV/debug
+  evidence output.
+- `video.py`: metadata inspection, frame planning, and bounded streaming execution.
+- `core.py`: the single run coordinator that performs preflight before gallery/model work.
+
+Tests and extensions should import or patch the owning module. Existing imports from
+`label_video` remain supported for the public API.
 
 ## Setup
 
@@ -142,6 +163,7 @@ Each milestone ends with a stop for the owner to test and review.
 ```bash
 .venv/bin/python -m pytest tests/test_environment.py -m slow -v
 .venv/bin/python -m pytest tests/test_matching.py -v
+.venv/bin/python -m pytest tests/test_core.py tests/test_video_plan.py -v
 .venv/bin/python -m pytest -m "not slow"
 .venv/bin/python -m pytest -m slow
 ```

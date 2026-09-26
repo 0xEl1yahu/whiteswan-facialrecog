@@ -4,15 +4,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from label_video import (
+from face_labeller.config import Config, load_config, parse_args
+from face_labeller.contracts import (
     CHARACTER_NAMES,
-    Config,
     Face,
     Gallery,
     Match,
     Track,
-    load_config,
-    parse_args,
 )
 
 

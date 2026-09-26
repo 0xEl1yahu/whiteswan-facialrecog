@@ -8,11 +8,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import label_video
-from label_video import (
+from face_labeller import gallery, perception
+from face_labeller.config import Config
+from face_labeller.contracts import (
     CHARACTER_NAMES,
-    Config,
     GalleryPhoto,
+)
+from face_labeller.gallery import (
     build_pins,
     gallery_cache_key,
     leave_one_out_report,
@@ -82,13 +84,13 @@ def install_fake_deepface(
                 raise ValueError("no face detected")
             return [{"embedding": unit_embedding(marker).tolist()}]
 
-    monkeypatch.setattr(label_video.cv2, "imread", fake_imread)
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(gallery.cv2, "imread", fake_imread)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
 
 @pytest.fixture(autouse=True)
 def reset_model_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(label_video, "_MODEL_BUILT", False)
+    monkeypatch.setattr(perception, "_MODEL_BUILT", False)
 
 
 def test_gallery_validation_requires_all_five_character_folders(tmp_path: Path) -> None:
@@ -306,7 +308,7 @@ def test_gallery_cache_cold_then_warm_avoids_all_model_work(
 
     represent_calls.clear()
     model_calls.clear()
-    monkeypatch.setattr(label_video, "_MODEL_BUILT", False)
+    monkeypatch.setattr(perception, "_MODEL_BUILT", False)
     warm = load_gallery(root, replace(cfg, pin_strategy="all"))
 
     assert represent_calls == []

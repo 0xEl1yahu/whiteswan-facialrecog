@@ -28,9 +28,9 @@ Read both documents before starting a milestone.
    what was built, test results, timings, open questions. Do not start the next milestone
    until the owner (Eli) approves.
 2. Do not change the data contracts (section 5) or the CLI (section 7) without owner approval.
-3. Do not resolve the remaining OWNER decisions D2-D3 (section 12). Respect the decided
-   `all` pin strategy and final stride of 1; use and flag provisional choices still awaiting
-   a gate.
+3. Do not resolve the remaining OWNER decision D3 (section 12). Respect the decided `all`
+   pin strategy, batch size 8, and final stride of 1; use and flag provisional choices
+   still awaiting a gate.
 4. No magic numbers. Every tunable lives in config with its source noted in a comment.
 5. "Verify" means check the installed DeepFace source or write a test. Do not assume.
 6. `match`, `cosine_distances`, `draw`, `iou` stay pure: no I/O.
@@ -52,7 +52,18 @@ Read both documents before starting a milestone.
 ```
 docs/design/design-plan.md   spec (source of truth)
 docs/implementation/         approved implementation plans
-label_video.py, tests/       to be built
+label_video.py               thin CLI and compatibility facade
+face_labeller/contracts.py   stable dataclasses and fixed model/name constants
+face_labeller/config.py      CLI parser, defaults, and validation
+face_labeller/cache.py       cache identity and persistent FaceCache
+face_labeller/perception.py  lazy DeepFace models, detection, and embeddings
+face_labeller/gallery.py     reference discovery, per-photo cache, and pins
+face_labeller/recognition.py pure cosine matching
+face_labeller/rendering.py   pure box, label, and landmark drawing
+face_labeller/evidence.py    matches.csv and debug-crop publication
+face_labeller/video.py       video preflight, frame plan, and streaming execution
+face_labeller/core.py        single end-to-end run coordinator
+tests/                       tests patch the module that owns each behavior
 data/video-source/nimbus.mp4 input clip, Philosopher's Stone (gitignored)
 data/reference-images/<Name>/ owner-curated gallery (gitignored; owner supplies before M2)
 cache/                       keyed gallery caches (one embedding/photo) + FaceCache (gitignored)
@@ -78,9 +89,20 @@ output/                      labelled video, matches.csv, debug crops (gitignore
 - `.venv/bin/python -m pytest tests/test_face_cache.py tests/test_video_integration.py -v`
   for M3 cache and video integration.
 - `.venv/bin/python -m pytest tests/test_matching.py -v` for M4 matching and CSV logging.
+- `.venv/bin/python -m pytest tests/test_core.py tests/test_video_plan.py -v` for preflight
+  and orchestration.
 - `.venv/bin/python -m pytest -m "not slow"` for unit tests.
 - `.venv/bin/python -m pytest -m slow` for integration tests.
 - `python label_video.py --input ... --output ... --ref-dir ...`
+
+## Current checkpoint
+- M4 modularization must stop for owner review before the full 3,044-frame M4 run.
+- Preflight reports the exact window, selected indices, cache hits, and frames to infer
+  before gallery/model work.
+- Cache formats and keys remain compatible: threshold and pin-strategy changes reuse
+  embeddings, and stride changes calculate only missing frames.
+- Final delivery uses stride 1 and CPU only. M6 work remains prohibited without the
+  owner's explicit command.
 
 ## Git
 - Commit only when asked. Branch off `main` for milestone work.

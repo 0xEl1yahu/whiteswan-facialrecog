@@ -5,15 +5,14 @@ import numpy as np
 import pytest
 
 import label_video
-from label_video import (
+from face_labeller import perception
+from face_labeller.config import Config
+from face_labeller.contracts import Face, Match
+from face_labeller.perception import build_models, embed_faces
+from face_labeller.rendering import (
     BOX_COLORS,
     LANDMARK_COLOR,
-    Config,
-    Face,
-    Match,
-    build_models,
     draw,
-    embed_faces,
 )
 
 
@@ -57,7 +56,15 @@ def result(
 
 @pytest.fixture(autouse=True)
 def reset_model_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(label_video, "_MODEL_BUILT", False)
+    monkeypatch.setattr(perception, "_MODEL_BUILT", False)
+
+
+def test_model_load_seconds_exposes_timing_without_mutable_global_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(perception, "_MODEL_LOAD_SECONDS_TOTAL", 1.25)
+
+    assert perception.model_load_seconds() == 1.25
 
 
 def test_build_models_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,7 +76,7 @@ def test_build_models_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
             calls.append(model_name)
             return object()
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     build_models(make_config())
     build_models(make_config())
@@ -92,7 +99,7 @@ def test_embed_faces_passes_explicit_approved_arguments(
             represent_calls.append(kwargs)
             return [result()]
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
     frame = np.zeros((12, 10, 3), dtype=np.uint8)
 
     embed_faces([frame], make_config(max_faces=5, normalization="Facenet2018"))
@@ -117,7 +124,7 @@ def test_embed_faces_normalizes_flat_single_frame_result(
         build_model = staticmethod(lambda model_name: object())
         represent = staticmethod(lambda **kwargs: [result(), result(embedding=unit_embedding(1))])
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     faces_by_frame = embed_faces([np.zeros((12, 10, 3), dtype=np.uint8)], make_config())
 
@@ -132,7 +139,7 @@ def test_embed_faces_preserves_multi_frame_order(monkeypatch: pytest.MonkeyPatch
             lambda **kwargs: [[result(embedding=unit_embedding(1))], [result(embedding=unit_embedding(2))]]
         )
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
     frames = [np.zeros((8, 8, 3), dtype=np.uint8) for _ in range(2)]
 
     faces_by_frame = embed_faces(frames, make_config())
@@ -148,7 +155,7 @@ def test_embed_faces_filters_placeholder_and_drops_none_landmarks(
         build_model = staticmethod(lambda model_name: object())
         represent = staticmethod(lambda **kwargs: [result(confidence=0), result()])
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     faces = embed_faces([np.zeros((12, 10, 3), dtype=np.uint8)], make_config())[0]
 
@@ -165,7 +172,7 @@ def test_embed_faces_clips_boxes_and_returns_float32_unit_vectors(
         build_model = staticmethod(lambda model_name: object())
         represent = staticmethod(lambda **kwargs: [result(area=area)])
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     face = embed_faces([np.zeros((12, 10, 3), dtype=np.uint8)], make_config())[0][0]
 
@@ -180,7 +187,7 @@ def test_embed_faces_can_return_no_real_detections(monkeypatch: pytest.MonkeyPat
         build_model = staticmethod(lambda model_name: object())
         represent = staticmethod(lambda **kwargs: [result(confidence=0)])
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     assert embed_faces([np.zeros((8, 8, 3), dtype=np.uint8)], make_config()) == [[]]
 
@@ -196,7 +203,7 @@ def test_embed_faces_rejects_invalid_embeddings(
         build_model = staticmethod(lambda model_name: object())
         represent = staticmethod(lambda **kwargs: [result(embedding=embedding)])
 
-    monkeypatch.setattr(label_video, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
 
     with pytest.raises(ValueError, match="embedding"):
         embed_faces([np.zeros((8, 8, 3), dtype=np.uint8)], make_config())

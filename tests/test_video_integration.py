@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import label_video
+from face_labeller import core, gallery, perception, video
 from label_video import Config, Face, FaceCache, Gallery, RunSummary, main, process_video
 
 
@@ -82,7 +83,7 @@ def install_fast_perception(monkeypatch: pytest.MonkeyPatch) -> list[list[int]]:
         calls.append([int(round(float(frame.mean()))) for frame in frames])
         return [[make_face()] for _ in frames]
 
-    monkeypatch.setattr(label_video, "embed_faces", fake_embed)
+    monkeypatch.setattr(perception, "embed_faces", fake_embed)
     return calls
 
 
@@ -127,7 +128,7 @@ def test_process_video_rejects_invalid_metadata(
         def release(self) -> None:
             pass
 
-    monkeypatch.setattr(label_video.cv2, "VideoCapture", lambda path: FakeCapture())
+    monkeypatch.setattr(video.cv2, "VideoCapture", lambda path: FakeCapture())
 
     with pytest.raises(ValueError, match=message):
         process_video(cfg)
@@ -147,7 +148,7 @@ def test_process_video_rejects_writer_open_failure(
             pass
 
     monkeypatch.setattr(
-        label_video.cv2, "VideoWriter", lambda *args, **kwargs: ClosedWriter()
+        video.cv2, "VideoWriter", lambda *args, **kwargs: ClosedWriter()
     )
 
     with pytest.raises(ValueError, match="cannot open output video"):
@@ -231,7 +232,7 @@ def test_process_video_warm_replay_and_stride_one_compute_only_missing_frames(
     assert sum(len(call) for call in second_calls) == 6
 
     monkeypatch.setattr(
-        label_video,
+        perception,
         "embed_faces",
         lambda frames, cfg: (_ for _ in ()).throw(
             AssertionError("warm replay called perception")
@@ -259,7 +260,7 @@ def test_process_video_continues_and_writes_every_frame_after_one_failure(
             raise RuntimeError("one bad frame")
         return [[make_face()]]
 
-    monkeypatch.setattr(label_video, "embed_faces", flaky_embed)
+    monkeypatch.setattr(perception, "embed_faces", flaky_embed)
 
     summary = process_video(cfg)
 
@@ -293,13 +294,15 @@ def test_main_runs_video_pipeline_and_reports_summary(
         label_distribution={"Unknown": 4},
     )
 
-    def fake_process(cfg: Config, gallery: object = None) -> RunSummary:
+    def fake_process(
+        cfg: Config, gallery: object = None, **_preflight: object
+    ) -> RunSummary:
         captured.append(cfg)
         return summary
 
-    monkeypatch.setattr(label_video, "process_video", fake_process)
-    monkeypatch.setattr(label_video, "load_gallery", lambda ref_dir, cfg: object())
-    (tmp_path / "input.mp4").write_bytes(b"placeholder")
+    monkeypatch.setattr(core, "process_video", fake_process)
+    monkeypatch.setattr(core, "load_gallery", lambda ref_dir, cfg: object())
+    write_test_video(tmp_path / "input.mp4", frame_count=1)
     (tmp_path / "references").mkdir()
 
     exit_code = main(
@@ -330,21 +333,21 @@ def test_main_times_gallery_and_reports_its_model_load_separately(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     cfg = make_config(tmp_path)
-    cfg.input_path.write_bytes(b"placeholder")
+    write_test_video(cfg.input_path, frame_count=1)
     cfg.ref_dir.mkdir()
-    monkeypatch.setattr(label_video, "_MODEL_LOAD_SECONDS_TOTAL", 0.0)
+    monkeypatch.setattr(perception, "_MODEL_LOAD_SECONDS_TOTAL", 0.0)
     ticks = iter([10.0, 12.0, 15.0])
-    monkeypatch.setattr(label_video.time, "perf_counter", lambda: next(ticks))
+    monkeypatch.setattr(core.time, "perf_counter", lambda: next(ticks))
 
     def fake_gallery(ref_dir: Path, config: Config) -> object:
-        label_video._MODEL_LOAD_SECONDS_TOTAL = 1.25
+        perception._MODEL_LOAD_SECONDS_TOTAL = 1.25
         return object()
 
-    monkeypatch.setattr(label_video, "load_gallery", fake_gallery)
+    monkeypatch.setattr(core, "load_gallery", fake_gallery)
     monkeypatch.setattr(
-        label_video,
+        core,
         "process_video",
-        lambda config, gallery: RunSummary(
+        lambda config, gallery, **preflight: RunSummary(
             elapsed_seconds=3.0, model_seconds=0.5, perception_seconds=2.0,
             processed_frames=1, written_frames=1, faces=1, cache_hits=0,
             cache_misses=1, failures=0, processing_fps=0.5, fps=12.0,
@@ -389,10 +392,10 @@ def test_main_rejects_csv_collision_without_changing_existing_file(
         collision = cache_file
     before = collision.read_bytes()
     monkeypatch.setattr(
-        label_video, "load_gallery",
+        core, "load_gallery",
         lambda *args: Gallery(np.stack([np.eye(512, dtype=np.float32)[0]]), ["Harry Potter"], ["Harry Potter"], {}),
     )
-    monkeypatch.setattr(label_video, "embed_faces", lambda frames, config: [[] for _ in frames])
+    monkeypatch.setattr(perception, "embed_faces", lambda frames, config: [[] for _ in frames])
 
     assert main([
         "--input", str(cfg.input_path), "--output", str(cfg.output_path),
@@ -413,7 +416,7 @@ def test_failed_processing_preserves_previous_csv_and_removes_staging_file(
     pin = np.zeros(512, dtype=np.float32)
     pin[0] = 1.0
     gallery = Gallery(np.stack([pin]), ["Harry Potter"], ["Harry Potter"], {})
-    monkeypatch.setattr(label_video, "embed_faces", lambda frames, config: [[make_face()] for _ in frames])
+    monkeypatch.setattr(perception, "embed_faces", lambda frames, config: [[make_face()] for _ in frames])
     actual_draw = label_video.draw
     drawn = 0
 
@@ -424,7 +427,7 @@ def test_failed_processing_preserves_previous_csv_and_removes_staging_file(
             raise RuntimeError("render failure")
         return actual_draw(frame, faces, matches, config)
 
-    monkeypatch.setattr(label_video, "draw", failing_draw)
+    monkeypatch.setattr(video, "draw", failing_draw)
 
     with pytest.raises(RuntimeError, match="render failure"):
         process_video(cfg, gallery)
@@ -454,7 +457,7 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
     def fake_gallery_photo(path: Path, config: Config) -> np.ndarray:
         return np.eye(512, dtype=np.float32)[owner_axes[path.parent.name]]
 
-    monkeypatch.setattr(label_video, "_embed_gallery_photo", fake_gallery_photo)
+    monkeypatch.setattr(gallery, "_embed_gallery_photo", fake_gallery_photo)
     known = np.zeros(512, np.float32)
     known[0] = 0.8
     known[10] = 0.6
@@ -472,7 +475,7 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
             for _ in frames
         ]
 
-    monkeypatch.setattr(label_video, "embed_faces", fake_embed)
+    monkeypatch.setattr(perception, "embed_faces", fake_embed)
     drawn_names: list[list[str | None]] = []
     actual_draw = label_video.draw
 
@@ -480,7 +483,7 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
         drawn_names.append([item.name for item in matches])
         return actual_draw(frame, faces, matches, config)
 
-    monkeypatch.setattr(label_video, "draw", observing_draw)
+    monkeypatch.setattr(video, "draw", observing_draw)
     args = [
         "--input", str(cfg.input_path), "--output", str(cfg.output_path),
         "--ref-dir", str(cfg.ref_dir), "--cache-dir", str(cfg.cache_dir),
@@ -506,8 +509,8 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
 
     monkeypatch.setattr(DeepFace, "build_model", lambda *args, **kwargs: pytest.fail("warm replay built model"))
     monkeypatch.setattr(DeepFace, "represent", lambda *args, **kwargs: pytest.fail("warm replay ran inference"))
-    monkeypatch.setattr(label_video, "embed_faces", lambda *args: pytest.fail("warm replay embedded frame"))
-    monkeypatch.setattr(label_video, "_embed_gallery_photo", lambda *args: pytest.fail("warm replay embedded photo"))
+    monkeypatch.setattr(perception, "embed_faces", lambda *args: pytest.fail("warm replay embedded frame"))
+    monkeypatch.setattr(gallery, "_embed_gallery_photo", lambda *args: pytest.fail("warm replay embedded photo"))
     warm_output = tmp_path / "warm.mp4"
     warm_csv = tmp_path / "warm.csv"
     warm_args = args.copy()
@@ -545,6 +548,44 @@ def test_main_returns_nonzero_for_required_path_failures(
 
     assert exit_code != 0
     assert capsys.readouterr().err
+
+
+@pytest.mark.parametrize("supplied", ["metadata", "plan", "cache"])
+def test_process_video_rejects_partial_preflight_handoff(
+    tmp_path: Path, supplied: str
+) -> None:
+    cfg = make_config(tmp_path)
+    write_test_video(cfg.input_path, frame_count=2)
+    metadata = video.inspect_video(cfg.input_path)
+    plan = video.build_frame_plan(
+        metadata, start_frame=0, max_frames=None, stride=1
+    )
+    cache = FaceCache(cfg.input_path, cfg)
+    values = {"metadata": metadata, "plan": plan, "face_cache": cache}
+    kwargs = {
+        key: value
+        for key, value in values.items()
+        if key == ("face_cache" if supplied == "cache" else supplied)
+    }
+
+    with pytest.raises(ValueError, match="must be supplied together"):
+        process_video(cfg, **kwargs)
+
+
+def test_process_video_rejects_video_changed_after_preflight(
+    tmp_path: Path,
+) -> None:
+    cfg = make_config(tmp_path)
+    write_test_video(cfg.input_path, frame_count=2)
+    observed = video.inspect_video(cfg.input_path)
+    stale = replace(observed, fps=observed.fps + 1.0)
+    plan = video.build_frame_plan(stale, start_frame=0, max_frames=None, stride=1)
+    cache = FaceCache(cfg.input_path, cfg)
+
+    with pytest.raises(ValueError, match="metadata changed after preflight"):
+        process_video(cfg, metadata=stale, plan=plan, face_cache=cache)
+
+    assert not cfg.output_path.exists()
 
 
 @pytest.mark.slow

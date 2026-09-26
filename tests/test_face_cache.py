@@ -9,14 +9,17 @@ import numpy as np
 import pytest
 
 import label_video
-from label_video import (
-    Config,
-    Face,
+from face_labeller import perception
+from face_labeller.cache import (
     FaceCache,
     face_cache_key,
-    process_batch_with_fallback,
-    selected_frame_indices,
 )
+from face_labeller.config import Config
+from face_labeller.contracts import Face
+from face_labeller.perception import process_batch_with_fallback
+from face_labeller.video import selected_frame_indices
+
+gallery_cache_key = label_video.gallery_cache_key
 
 
 VERSIONS = {
@@ -82,6 +85,19 @@ def test_face_cache_key_contains_video_hash_and_every_upstream_input(
     assert face_cache_key(video_path, cfg, VERSIONS) == hashlib.sha256(
         encoded
     ).hexdigest()
+
+
+def test_cache_keys_match_pre_modularization_golden_values(tmp_path: Path) -> None:
+    video_path = tmp_path / "fixture.mp4"
+    write_video_bytes(video_path, b"video-fixture")
+    cfg = make_config(tmp_path)
+
+    assert gallery_cache_key(cfg, VERSIONS) == (
+        "799c07df4ebcc29fefc98c3feb18383d84f269e9f09ff4afbfe270233161f0fc"
+    )
+    assert face_cache_key(video_path, cfg, VERSIONS) == (
+        "13fdefcc341fd7d2482b1c2b542ea0d0e4b24eee705f77ff2657f53a22fa9051"
+    )
 
 
 @pytest.mark.parametrize(
@@ -338,7 +354,7 @@ def test_process_batch_with_fallback_preserves_successful_batch_order(
         assert len(frames) == 2
         return [[first], [second]]
 
-    monkeypatch.setattr(label_video, "embed_faces", fake_embed)
+    monkeypatch.setattr(perception, "embed_faces", fake_embed)
     indexed_frames = [
         (10, np.zeros((4, 4, 3), dtype=np.uint8)),
         (12, np.ones((4, 4, 3), dtype=np.uint8)),
@@ -362,7 +378,7 @@ def test_process_batch_with_fallback_retries_individually_and_isolates_failure(
             raise RuntimeError("frame failed")
         return [[recovered] if marker == 1 else []]
 
-    monkeypatch.setattr(label_video, "embed_faces", fake_embed)
+    monkeypatch.setattr(perception, "embed_faces", fake_embed)
     indexed_frames = [
         (20, np.zeros((4, 4, 3), dtype=np.uint8)),
         (21, np.ones((4, 4, 3), dtype=np.uint8)),
@@ -393,7 +409,7 @@ def test_failed_batch_frame_is_requested_on_next_cache_run(
     assert reloaded.missing([30, 31]) == [31]
 
     monkeypatch.setattr(
-        label_video, "embed_faces", lambda frames, config: [[make_face()]]
+        perception, "embed_faces", lambda frames, config: [[make_face()]]
     )
     recovered = process_batch_with_fallback(
         [(31, np.zeros((4, 4, 3), dtype=np.uint8))], cfg

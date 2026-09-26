@@ -8,8 +8,11 @@ import numpy as np
 import pytest
 from deepface.modules import verification
 
-import label_video
-from label_video import Config, Face, Gallery, Match
+from face_labeller import recognition
+from face_labeller.config import Config
+from face_labeller.contracts import Face, Gallery, Match
+from face_labeller.evidence import MatchLogger
+from face_labeller.recognition import cosine_distances, match
 
 
 def unit_vector(axis: int) -> np.ndarray:
@@ -23,7 +26,7 @@ def test_cosine_distances_agrees_with_deepface() -> None:
     tilted = (unit_vector(0) + unit_vector(1)) / np.sqrt(2)
     pins = np.stack([probe, tilted, unit_vector(1)]).astype(np.float32)
 
-    distances = label_video.cosine_distances(probe, pins)
+    distances = cosine_distances(probe, pins)
 
     assert distances.shape == (3,)
     for index, pin in enumerate(pins):
@@ -42,7 +45,7 @@ def test_match_nearest_pin_wins_and_gallery_order_breaks_ties() -> None:
     )
     face = Face((1, 2, 3, 4), {}, probe, 0.95)
 
-    result = label_video.match(face, gallery, 0.30)
+    result = match(face, gallery, 0.30)
 
     assert result.nearest_name == "Harry Potter"
     assert result.name == "Harry Potter"
@@ -65,11 +68,11 @@ def test_match_threshold_is_strict_and_unknown_retains_nearest(
         calls.append((distance, model, is_verified, metric))
         return 73.5
 
-    monkeypatch.setattr(verification, "find_confidence", confidence)
+    monkeypatch.setattr(recognition.verification, "find_confidence", confidence)
     face = Face((1, 2, 3, 4), {}, unit_vector(0), 0.95)
     gallery = Gallery(np.stack([unit_vector(1)]), ["Ron Weasley"], ["Ron Weasley"], {})
 
-    result = label_video.match(face, gallery, threshold)
+    result = match(face, gallery, threshold)
 
     assert result.nearest_name == "Ron Weasley"
     assert result.name == expected_name
@@ -96,12 +99,12 @@ def test_match_logger_writes_one_row_per_face_and_overwrites_each_run(
     known = Match("Harry Potter", "Harry Potter", 0.123456, 87.5)
     unknown = Match("Ron Weasley", None, 0.345678, 23.25)
     monkeypatch.setattr(
-        label_video,
+        recognition,
         "cosine_distances",
         lambda *args: (_ for _ in ()).throw(AssertionError("logger recomputed distance")),
     )
 
-    with label_video.MatchLogger(cfg) as logger:
+    with MatchLogger(cfg) as logger:
         logger.log(7, 0, face, known, 0.30)
         logger.log(7, 1, face, unknown, 0.30)
     assert logger.closed
@@ -125,7 +128,7 @@ def test_match_logger_writes_one_row_per_face_and_overwrites_each_run(
     assert rows[1]["assigned_name"] == "Unknown"
     assert float(rows[1]["distance"]) == pytest.approx(0.345678)
 
-    with label_video.MatchLogger(cfg) as logger:
+    with MatchLogger(cfg) as logger:
         logger.log(8, 0, face, unknown, 0.40)
     with cfg.csv_path.open(newline="") as source:
         reader = csv.DictReader(source)
@@ -140,7 +143,7 @@ def test_match_logger_clips_debug_crop_without_mutating_frame(tmp_path: Path) ->
     face = Face((-2, 1, 6, 7), {}, unit_vector(0), 0.9)
     result = Match("Prof. McGonagall", None, 0.456789, 10.0)
 
-    with label_video.MatchLogger(cfg) as logger:
+    with MatchLogger(cfg) as logger:
         logger.log(12, 3, face, result, 0.30, frame=frame)
 
     crops = list((tmp_path / "debug" / "crops").glob("*.png"))
@@ -160,7 +163,7 @@ def test_match_logger_publishes_only_after_successful_close(tmp_path: Path) -> N
     face = Face((2, 3, 11, 13), {}, unit_vector(0), 0.95)
     result = Match("Harry Potter", "Harry Potter", 0.1, 90.0)
 
-    with label_video.MatchLogger(cfg) as logger:
+    with MatchLogger(cfg) as logger:
         logger.log(0, 0, face, result, 0.3)
         assert cfg.csv_path.read_bytes() == b"previous evidence\n"
 

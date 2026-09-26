@@ -4,7 +4,7 @@
 
 **Goal:** Build a deterministic CPU-only pipeline that boxes every detected face in the supplied video and labels it as one of five Harry Potter characters or Unknown, while caching every expensive embedding result for reuse.
 
-**Architecture:** A single `label_video.py` process indexes the owner-curated gallery into configuration-keyed per-photo caches, streams video frames through RetinaFace and Facenet512 into a per-frame FaceCache, then performs pure matching and rendering. Matching, threshold changes, pin-strategy changes, preview stride changes, and optional smoothing replay compatible cached embeddings without model loading or inference. `analyse_matches.py` consumes derived CSV/cache evidence during M5 and never mutates approved defaults.
+**Architecture:** The `label_video.py` executable delegates to a focused `face_labeller/` package whose `core.run` coordinates model-free video preflight, gallery indexing, cached RetinaFace/Facenet512 perception, pure matching, evidence logging, rendering, and video output. Matching, threshold changes, pin-strategy changes, preview stride changes, and optional smoothing replay compatible cached embeddings without model loading or inference. `analyse_matches.py` consumes derived CSV/cache evidence during M5 and never mutates approved defaults.
 
 **Tech Stack:** Python 3.11, DeepFace 0.0.101, RetinaFace 0.0.18, TensorFlow/`tf-keras`, Facenet512, OpenCV, NumPy, pytest, gdown.
 
@@ -33,7 +33,10 @@
 
 ## File Structure
 
-- `label_video.py` — approved single-file production pipeline: contracts, config, lazy model loading, gallery/cache, perception, matching, optional tracking, rendering, video I/O, and CLI.
+- `label_video.py` — thin executable and compatibility facade.
+- `face_labeller/` — contracts, configuration, perception, caches, gallery, recognition,
+  rendering, evidence, video planning/streaming, and the single execution core, as approved
+  in `docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`.
 - `analyse_matches.py` — M5 evidence generation over `matches.csv`, keyed caches, and source video.
 - `requirements.txt` — exact compatible versions recorded at M0 and updated only when an approved milestone adds a dependency.
 - `pytest.ini` — declares the `slow` marker.
@@ -438,19 +441,26 @@ The heavy models must remain resident once loaded; an idle gate must not repeate
 measured model-startup cost. Do not implement either optimization path until its tests,
 acceptance criteria, and owner approval are added to this plan.
 
-- [ ] **Step 12: Generate and validate the full stride-1 vertical slice**
+- [ ] **Step 12: Complete the approved modularization and preflight checkpoint**
+
+Execute `docs/superpowers/plans/2026-09-26-label-video-modularization.md` through its STOP
+gate. Preserve the CLI, approved data contracts, cache keys/schemas, CSV schema, output
+behavior, lazy model loading, and zero-inference replay. Do not begin the full 3,044-frame
+run until Eli accepts the checkpoint report.
+
+- [ ] **Step 13: Generate and validate the full stride-1 vertical slice**
 
 Run the approved CLI over all 3,044 frames at stride 1. Verify output frame count, FPS, dimensions, duration tolerance of one frame, CSV schema/row count, cache completion, and end-of-run label distribution. Manually inspect representative crowd, wide, motion, profile, and scene-cut frames for boxes and labels.
 
-- [ ] **Step 13: Prove zero-inference relabelling**
+- [ ] **Step 14: Prove zero-inference relabelling**
 
 Run again with a different threshold and separate output/CSV paths. Capture logs/tests proving no Facenet512 load, RetinaFace call, or Facenet512 inference occurred and that cached detections/embeddings were reused.
 
-- [ ] **Step 14: Report the M4 STOP gate**
+- [ ] **Step 15: Report the M4 STOP gate**
 
 Report how the stride-1 video and Unknown handling satisfy R1/R2, all test results, full/warm timings, output validation, label distribution, visual findings, and open questions. Stop before tuning.
 
-- [ ] **Step 15: Commit only if explicitly requested**
+- [ ] **Step 16: Commit only if explicitly requested**
 
 If Eli asks, commit the M4 files as `feat: complete cached face labelling pipeline`.
 

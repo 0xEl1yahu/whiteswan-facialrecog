@@ -1,0 +1,1 @@
+"""Modular face-labelling pipeline."""
