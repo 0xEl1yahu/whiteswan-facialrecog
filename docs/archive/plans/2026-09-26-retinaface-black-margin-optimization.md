@@ -1,5 +1,9 @@
 # RetinaFace Black-Margin Optimization Implementation Plan
 
+> **Archived completed plan.** Implemented in commit `c7736ca` and merged in PR #2.
+> Checkboxes below are historical execution records; current status lives in
+> [`docs/STATUS.md`](../../STATUS.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace redundant black-border RetinaFace computation with the approved exact-resize 988x576 crop path while preserving every sampled baseline face, the public CLI/data contracts, deterministic CPU execution, and recoverable cache behavior.
@@ -8,7 +12,7 @@
 
 **Tech Stack:** Python 3.11, DeepFace 0.0.101, retina-face 0.0.18, TensorFlow/tf-keras 2.21.0, OpenCV 5.0.0.93, NumPy 2.4.6, pytest 9.1.1.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
+**Spec:** `docs/archive/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
 
 ## Global Constraints
 
@@ -375,7 +379,7 @@ Preserve the green state for the single conditional milestone commit after Task 
 - Modify: `README.md`
 - Modify: `AGENTS.md`
 - Create: `docs/results/m4-retinaface-black-margin-optimization.md`
-- Verify: `docs/reviews/CODEBASE-MODULE-AUDIT.MD`
+- Verify: `docs/archive/reviews/2026-09-26-codebase-module-audit.md`
 
 **Interfaces:**
 - Consumes: approved design, passing implementation behavior, and established M3/M4 evidence.
@@ -472,7 +476,7 @@ Expected: all tests pass, dependency/CLI/diff checks pass, only intended source/
 
 Report what changed, exact tests, 300-frame counts/IoU/embedding evidence, all identity changes, timings, warm replay, remaining uncertainty, and how the result advances R1/R2. Stop before the full 3,044-frame run and wait for Eli's approval.
 
-- [ ] **Step 10: Commit only if explicitly requested after owner review**
+- [x] **Step 10: Commit only if explicitly requested after owner review**
 
 If Eli asks after accepting the gate, rerun the complete fast and slow suites immediately
 before committing, stage the implementation, tests, approved docs, and Markdown evidence

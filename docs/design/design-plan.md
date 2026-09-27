@@ -18,6 +18,8 @@ Required stack: Python + DeepFace, detector = RetinaFace, recogniser = Facenet51
 Accuracy bar: "reasonable given the model's capabilities". Not perfect.
 
 Deliverables: `label_video.py`, `requirements.txt`, `README.md`, output video, `matches.csv`.
+Current milestone, decision, gallery, and accepted-artifact identity is recorded only in
+`docs/STATUS.md`; this document remains the normative requirements source.
 
 Priorities, in order:
 1. A first vertical slice (M1-M4: video in, labelled video + CSV out) that is built and
@@ -75,7 +77,8 @@ output/                         labelled video, matches.csv, debug/ (gitignored)
    the system before the next milestone starts. Work runs up to M5; M6 starts only on the
    owner's explicit command, after the slice is verified.
 2. Do not change the data contracts (section 5) or the CLI (section 7) without owner approval.
-3. Do not resolve OWNER decisions (section 12). Use the provisional default and flag it.
+3. Do not resolve OWNER decisions (section 12) on the owner's behalf. Use and document
+   the recorded choices; flag any decision that remains provisional.
 4. Do not hard-code magic numbers. Every tunable goes in config, with its source noted.
 5. Where this spec says "verify", check the behaviour in the installed DeepFace source or with
    a test. Do not assume.
@@ -118,7 +121,7 @@ source, 2026-09-26):
   removes only grid-aligned black margin while retaining a 32 px detector halo. For 1080p
   this changes the detector tensor from 1820x1024 to 988x576 without changing the resized
   content pixels. See
-  `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`.
+  `docs/archive/specs/2026-09-26-retinaface-black-margin-optimization-design.md`.
 - DeepFace calls RetinaFace with threshold=0.9, hard-coded and NOT configurable through any
   represent()/extract_faces() argument (models/face_detection/RetinaFace.py:48). Real
   detections have face_confidence >= 0.9. face_confidence is rounded to 2 dp.
@@ -135,7 +138,8 @@ source, 2026-09-26):
   downloaded once to ~/.deepface/weights/ on first build_model.
 - Embeddings are NOT L2-normalised by default (represent(l2_normalize=False)). Pass
   l2_normalize=True, and still assert unit norm on our side.
-- Default threshold: find_threshold("Facenet512", "cosine") == 0.30.
+- DeepFace library threshold: find_threshold("Facenet512", "cosine") == 0.30. The
+  owner-approved production threshold is 0.305 (D3).
 - find_confidence(distance, model_name, verified, distance_metric) returns 0-100
   (51-100 = same person, 0-49 = different).
 - represent() accepts a list of images. DETECTION IS NOT BATCHED (a Python loop per image);
@@ -186,7 +190,7 @@ class Track:              # used only in M6
 ## 6. Module specs
 
 The original single-file layout is amended by the owner-approved modularization design in
-`docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`. The public command
+`docs/archive/specs/2026-09-26-label-video-modularization-design.md`. The public command
 remains `python label_video.py ...`; `label_video.py` becomes a thin executable and
 compatibility facade over the `face_labeller/` package. Existing data contracts, CLI flags,
 cache formats, matching rules, and output formats remain unchanged.
@@ -340,7 +344,7 @@ playback.
 ```
 python label_video.py --input data/video-source/nimbus.mp4 \
   --output output/nimbus_labelled.mp4 --ref-dir data/reference-images/
-  [--stride 1] [--batch-size 8] [--threshold <default: find_threshold>]
+  [--stride 1] [--batch-size 8] [--threshold <default: 0.305>]
   [--pin-strategy mean|all (default: all)] [--normalization base|Facenet2018]
   [--max-faces N (default: no cap, per R1)] [--start-frame 0] [--max-frames N]
   [--cache-dir cache/] [--no-cache]    # owner-approved 2026-09-26
@@ -412,12 +416,12 @@ M4 Names (completes the vertical slice)
   assignments; relabelling at a different threshold replays from the FaceCache without
   loading Facenet512 or making inference calls.
   Before the full-video run, complete the approved modularization and video-preflight plan
-  in `docs/superpowers/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
+  in `docs/archive/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
   prove CLI/data/cache compatibility and short cold/warm output parity. This is an M4
   refactor checkpoint, not a new product milestone.
   Before the full-video run, execute the owner-approved exact-resize black-margin
   optimization in
-  `docs/superpowers/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its 300-frame
+  `docs/archive/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its 300-frame
   gate must match all 1,262 M3 baseline faces at IoU >= 0.5, manually explain additions,
   enumerate identity changes, beat steady perception wall time by at least 50%, and prove
   a schema-2 warm replay performs zero inference. Stop again for owner review before all
@@ -501,7 +505,9 @@ D2 Stride / batch size. DECIDED by Eli on 2026-09-26: batch size 8; stride 3 for
    selected detection work. Only the embedding pass is batched because detection loops per
    frame, so stride—not batch size—drives runtime. The CLI default remains stride 1.
 D3 Threshold and normalization, chosen from the M5 evidence.
-   Provisional: 0.30 (library default), base.
+   DECIDED by Eli on 2026-09-27: 0.305, base. The full cached 0.30-to-0.31 review
+   found that 0.305 recovered 62 correct names without accepting the first observed
+   wrong-name transition. See `docs/results/m5-threshold-ab.md`.
 
 ## 13. Known failure modes (document them; don't over-engineer)
 Profile or turned faces; motion blur; low light; small faces in wide shots;

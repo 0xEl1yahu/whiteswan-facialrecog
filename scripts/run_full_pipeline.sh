@@ -102,7 +102,7 @@ echo "Running the full CPU-only stride-1 pipeline"
   --ref-dir "$REFERENCE_DIR" \
   --stride 1 \
   --batch-size 8 \
-  --threshold 0.30 \
+  --threshold 0.305 \
   --pin-strategy all \
   --cache-dir "$CACHE_DIR" \
   --csv "$STAGED_CSV"
@@ -132,4 +132,4 @@ mv "$STAGED_CSV" "$OUTPUT_CSV"
 echo "Complete"
 echo "Labelled video (source audio preserved): $OUTPUT_VIDEO"
 echo "Detection evidence: $OUTPUT_CSV"
-echo "Run report: $REPO_ROOT/docs/results/m4-gallery-perception-consistency.md"
+echo "Run report: $REPO_ROOT/docs/STATUS.md"

@@ -1,5 +1,9 @@
 # RetinaFace Black-Margin Optimization Design
 
+> **Archived approved design.** Implemented in commit `c7736ca` and merged in PR #2.
+> Current architecture and status live in [`docs/STATUS.md`](../../STATUS.md) and the
+> authoritative design plan.
+
 **Status:** Approved by Eli on 2026-09-26
 
 **Date:** 2026-09-26
@@ -284,4 +288,4 @@ Gallery cache schema 2 adds `perception_pipeline` and `detector_black_halo` to i
 and key. This deliberately invalidates old-path gallery embeddings. The video FaceCache is
 independent and unchanged: a compatible 3,044-frame cache replay must perform no RetinaFace
 or Facenet512 video inference. The approved implementation and evidence steps are in
-`docs/superpowers/plans/2026-09-27-gallery-perception-consistency.md`.
+`docs/archive/plans/2026-09-27-gallery-perception-consistency.md`.

@@ -156,7 +156,7 @@ def test_fresh_clone_sets_up_downloads_video_and_runs_full_pipeline(
     assert "label_video.py" in calls
     assert "--stride 1" in calls
     assert "--batch-size 8" in calls
-    assert "--threshold 0.30" in calls
+    assert "--threshold 0.305" in calls
     assert "--pin-strategy all" in calls
     media_calls = (tmp_path / "media.log").read_text(encoding="utf-8")
     assert "-map 0:v:0 -map 1:a:0" in media_calls
@@ -164,7 +164,7 @@ def test_fresh_clone_sets_up_downloads_video_and_runs_full_pipeline(
     assert "ffprobe" in media_calls
     assert (
         "Run report: "
-        f"{root / 'docs/results/m4-gallery-perception-consistency.md'}"
+        f"{root / 'docs/STATUS.md'}"
         in result.stdout
     )
 

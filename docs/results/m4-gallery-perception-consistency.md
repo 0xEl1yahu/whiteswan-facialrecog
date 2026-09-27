@@ -1,6 +1,10 @@
 # M4 Gallery/Video Perception Consistency Correction
 
-Status: complete; regenerated deliverables accepted for PR review
+> **Historical snapshot as of `0c7549a`.** This report covers the then-current 13-photo
+> gallery and threshold `0.30`. The 17-photo gallery and D3 result supersede its counts and
+> hashes. See [`docs/STATUS.md`](../STATUS.md).
+
+Status at the time: complete; regenerated deliverables accepted for PR review
 
 Date: 2026-09-27
 Branch: `investigation/video-runtime`

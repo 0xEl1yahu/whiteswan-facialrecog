@@ -1,5 +1,9 @@
 # Video Runtime Investigation and Codebase Module Audit
 
+> **Archived investigation snapshot.** Measurements and “current” language refer to commit
+> `8519059` on 2026-09-26. The approved optimization was later implemented; current status
+> lives in [`docs/STATUS.md`](../../STATUS.md).
+
 Status: non-authoritative engineering assessment
 
 Date: 2026-09-26
@@ -120,8 +124,8 @@ replay remained inference-free and completed in 2.707 seconds.
 The subsequent owner-approved full run measured 33m03s end to end for all 3,044 frames,
 faster than the conservative 45-55 minute range. It produced 5,353 detections with zero
 failed frames and a complete schema-2 cache. This measurement supersedes the projections.
-See [M4 Full Stride-1 Run](../results/m4-full-run.md); the preceding acceptance record is
-[M4 RetinaFace Black-Margin Optimization Gate](../results/m4-retinaface-black-margin-optimization.md).
+See [M4 Full Stride-1 Run](../../results/m4-full-run.md); the preceding acceptance record is
+[M4 RetinaFace Black-Margin Optimization Gate](../../results/m4-retinaface-black-margin-optimization.md).
 
 ## 4. Reproducibility and coverage
 

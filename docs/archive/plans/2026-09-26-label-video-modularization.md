@@ -1,5 +1,9 @@
 # Label Video Modularization Implementation Plan
 
+> **Archived completed plan.** Implemented and merged in commit `79431f5` (PR #1).
+> Checkboxes below are historical execution records; current status lives in
+> [`docs/STATUS.md`](../../STATUS.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split `label_video.py` into focused `face_labeller` modules, establish `core.run` as the single execution coordinator, and add model-free video/frame preflight without changing approved CLI, data, cache, or output behavior.
@@ -8,7 +12,7 @@
 
 **Tech Stack:** Python 3.11, dataclasses, argparse, pathlib, OpenCV, NumPy, DeepFace 0.0.101, RetinaFace 0.0.18, Facenet512, pytest 9.1.1.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`
+**Spec:** `docs/archive/specs/2026-09-26-label-video-modularization-design.md`
 
 ## Global Constraints
 
@@ -69,7 +73,7 @@
 - Consumes: existing constants, dataclasses, parser validators, and CLI defaults from `label_video.py`.
 - Produces: unchanged `Face`, `Match`, `Gallery`, `GalleryPhoto`, `Track`, `Config`, and `RunSummary`; unchanged `build_parser()`, `parse_args(argv)`, and `load_config(args)`; compatibility imports from `label_video`.
 
-- [ ] **Step 1: Write facade and ownership characterization tests**
+- [x] **Step 1: Write facade and ownership characterization tests**
 
 Add `tests/test_facade.py::test_label_video_exports_supported_api` asserting that these names resolve from `label_video`: `CHARACTER_NAMES`, `MODEL_NAME`, `DETECTOR_BACKEND`, `BOX_COLORS`, `LANDMARK_COLOR`, `Config`, `Face`, `Match`, `Gallery`, `GalleryPhoto`, `Track`, `RunSummary`, `FaceCache`, `MatchLogger`, `build_parser`, `parse_args`, `load_config`, `build_models`, `embed_faces`, `gallery_cache_key`, `face_cache_key`, `build_pins`, `load_gallery`, `leave_one_out_report`, `selected_frame_indices`, `process_batch_with_fallback`, `cosine_distances`, `match`, `draw`, `process_video`, and `main`.
 
@@ -87,23 +91,23 @@ assert tuple(RunSummary.__dataclass_fields__) == (
 )
 ```
 
-- [ ] **Step 2: Run the characterization tests before moving code**
+- [x] **Step 2: Run the characterization tests before moving code**
 
 Run: `.venv/bin/python -m pytest tests/test_config.py tests/test_facade.py -v`
 
 Expected: existing configuration tests PASS; new facade tests PASS against the monolith and establish the surface to preserve.
 
-- [ ] **Step 3: Create the package and move contracts/configuration**
+- [x] **Step 3: Create the package and move contracts/configuration**
 
 Move fixed domain constants and records to `contracts.py`. Move CLI defaults, `Config`, validators, parser creation, parsing, and config construction to `config.py`. Preserve default-source comments and type annotations.
 
 In `label_video.py`, import and re-export the moved names explicitly. Do not use `from face_labeller import *`, dynamic `__getattr__`, or module alias tricks.
 
-- [ ] **Step 4: Move configuration tests to their owning modules**
+- [x] **Step 4: Move configuration tests to their owning modules**
 
 Update `tests/test_config.py` to import records from `face_labeller.contracts` and configuration behavior from `face_labeller.config`. Keep `tests/test_facade.py` as the only test whose purpose is broad compatibility through `label_video`.
 
-- [ ] **Step 5: Verify the first runnable slice**
+- [x] **Step 5: Verify the first runnable slice**
 
 Run:
 
@@ -130,7 +134,7 @@ Expected: 119 or more fast tests pass, 3 slow tests remain deselected, and help 
 - Consumes: `Config`, input path, OpenCV capture metadata, `FaceCache.status/missing`, and current `selected_frame_indices` behavior.
 - Produces: `VideoMetadata`, `FramePlan`, `inspect_video`, `build_frame_plan`, deterministic preflight output, and optional precomputed objects accepted by `process_video`.
 
-- [ ] **Step 1: Write failing metadata and pure-plan tests**
+- [x] **Step 1: Write failing metadata and pure-plan tests**
 
 Define exact records in the test imports:
 
@@ -167,13 +171,13 @@ Also assert full-window planning, clipping beyond EOF, a one-frame window, strid
 
 Mock captures to assert `inspect_video` returns exact metadata, rejects unopened capture/invalid FPS/size/count, and calls `release()` once on every path.
 
-- [ ] **Step 2: Run preflight tests and verify the new interfaces are absent**
+- [x] **Step 2: Run preflight tests and verify the new interfaces are absent**
 
 Run: `.venv/bin/python -m pytest tests/test_video_plan.py -v`
 
 Expected: FAIL because `VideoMetadata`, `FramePlan`, `inspect_video`, and `build_frame_plan` do not exist.
 
-- [ ] **Step 3: Implement immutable metadata and pure planning**
+- [x] **Step 3: Implement immutable metadata and pure planning**
 
 Add the two records to `contracts.py`. Implement in `video.py`:
 
@@ -191,13 +195,13 @@ def build_frame_plan(
 
 Keep `selected_frame_indices(start, stop, stride)` as a pure public helper in `video.py`; `build_frame_plan` must call it so there is one selection rule.
 
-- [ ] **Step 4: Write failing preflight-order and cache-state tests**
+- [x] **Step 4: Write failing preflight-order and cache-state tests**
 
 Add tests that monkeypatch gallery loading, `build_models`, and `DeepFace.represent` to raise if reached. Assert invalid video metadata and an out-of-range start return non-zero without any forbidden call.
 
 For selected indices `(2, 5, 8)`, populate cache states as `2=ok([])`, `5=failed`, and `8=absent`; assert preflight reports `selected=3`, `cached=1`, and `to_infer=2` and keeps `(5, 8)` in pending order.
 
-- [ ] **Step 5: Integrate preflight before gallery work**
+- [x] **Step 5: Integrate preflight before gallery work**
 
 In the current executable orchestration, validate cross-path constraints, call `inspect_video`, call `build_frame_plan`, open one `FaceCache`, calculate `pending_indices = tuple(cache.missing(plan.selected_indices))`, and print the approved counts before `load_gallery`.
 
@@ -216,7 +220,7 @@ def process_video(
 
 Require either none or all three optional objects. When supplied, reuse them; when omitted, construct them internally. Verify the streaming capture metadata matches `metadata` before creating/publishing output.
 
-- [ ] **Step 6: Verify preflight and unchanged video behavior**
+- [x] **Step 6: Verify preflight and unchanged video behavior**
 
 Run:
 
@@ -245,7 +249,7 @@ Expected: all fast tests pass; invalid inputs perform no gallery/model work; cac
 - Consumes: approved contracts, presentation constants, `Config`, NumPy, OpenCV, and DeepFace confidence conversion.
 - Produces: pure `cosine_distances`, pure `match`, `unknown_matches`, pure `draw`, CSV-path validation, and `MatchLogger`.
 
-- [ ] **Step 1: Add ownership assertions before extraction**
+- [x] **Step 1: Add ownership assertions before extraction**
 
 Extend facade tests after extraction to assert:
 
@@ -257,19 +261,19 @@ assert label_video.MatchLogger is face_labeller.evidence.MatchLogger
 
 Move tests that patch confidence calculation to patch `face_labeller.recognition.verification`; move OpenCV drawing patches to `face_labeller.rendering.cv2`; move CSV/crop patches to `face_labeller.evidence.cv2`.
 
-- [ ] **Step 2: Extract recognition with no behavior changes**
+- [x] **Step 2: Extract recognition with no behavior changes**
 
 Move `cosine_distances`, `match`, and `_unknown_matches` to `recognition.py`; rename only the internal helper to public `unknown_matches(faces: Sequence[Face]) -> list[Match]` so `video.py` can consume it without importing a private name. Retain deterministic NumPy `argmin`, strict threshold comparison, nearest-name retention, and the exact confidence call.
 
-- [ ] **Step 3: Extract pure rendering**
+- [x] **Step 3: Extract pure rendering**
 
 Move palette/font constants, label placement, and `draw` to `rendering.py`. Preserve input-copy semantics, clipping, edge label placement, colors, text, confidence rounding, landmarks, and zero-area behavior.
 
-- [ ] **Step 4: Extract evidence output**
+- [x] **Step 4: Extract evidence output**
 
 Move `_MATCH_COLUMNS`, CSV-path validation, and `MatchLogger` to `evidence.py`. Preserve staged overwrite behavior, exact column order, Unknown serialization, crop clipping/naming, and no distance recalculation.
 
-- [ ] **Step 5: Re-export and verify the pure/output slice**
+- [x] **Step 5: Re-export and verify the pure/output slice**
 
 Explicitly re-export the moved supported names from `label_video.py`. Run:
 
@@ -298,7 +302,7 @@ Expected: matching/drawing/logger tests pass with patches aimed at their owning 
 - Consumes: `Config`, `Face`, input frames, input video bytes, fixed upstream metadata, installed versions.
 - Produces: `build_models`, `model_load_seconds`, `embed_faces`, `process_batch_with_fallback`, stable cache-key helpers, and `FaceCache`.
 
-- [ ] **Step 1: Add golden cache-identity tests before moving code**
+- [x] **Step 1: Add golden cache-identity tests before moving code**
 
 Using a file containing exactly `b"video-fixture"` and fixed versions:
 
@@ -320,7 +324,7 @@ face_cache_key    = 13fdefcc341fd7d2482b1c2b542ea0d0e4b24eee705f77ff2657f53a22fa
 
 Keep existing assertions for exact FaceCache NPZ fields, metadata, states, and old-cache load behavior.
 
-- [ ] **Step 2: Extract perception and expose read-only timing**
+- [x] **Step 2: Extract perception and expose read-only timing**
 
 Move lazy DeepFace import, `_MODEL_BUILT`, `_MODEL_LOAD_SECONDS_TOTAL`, `build_models`, DeepFace result normalization, clipping, face conversion, embedding validation, `embed_faces`, and `process_batch_with_fallback` into `perception.py`.
 
@@ -333,7 +337,7 @@ def model_load_seconds() -> float:
 
 Tests patch `face_labeller.perception._get_deepface`, `time.perf_counter`, and model state directly. Production modules use the accessor rather than importing mutable counters.
 
-- [ ] **Step 3: Extract shared cache identity and FaceCache**
+- [x] **Step 3: Extract shared cache identity and FaceCache**
 
 Move `_file_sha256`, `_installed_versions`, stable JSON hashing, face-cache metadata/key generation, embedding validation shared by cache decoding, and `FaceCache` into `cache.py`. Preserve the constructor and public methods:
 
@@ -349,11 +353,11 @@ flush()
 
 Do not change schema constants, metadata contents, safe stem calculation, dtypes, or atomic replacement.
 
-- [ ] **Step 4: Rewire preflight and current streaming code**
+- [x] **Step 4: Rewire preflight and current streaming code**
 
 Update `video.py` and the still-current orchestration to import `FaceCache` from `cache` and batch fallback/model timing from `perception`. Re-export supported names from the facade.
 
-- [ ] **Step 5: Verify lazy loading, cache compatibility, and fallback**
+- [x] **Step 5: Verify lazy loading, cache compatibility, and fallback**
 
 Run:
 
@@ -379,21 +383,21 @@ Expected: both golden keys match; existing cache serialization tests pass; batch
 - Consumes: owner-curated paths, `Config`, cache helpers, perception embedding/model behavior, and pure recognition/build-pin inputs.
 - Produces: `gallery_cache_key`, `build_pins`, `load_gallery`, and `leave_one_out_report` with unchanged behavior and metadata.
 
-- [ ] **Step 1: Move gallery tests to intended ownership boundaries**
+- [x] **Step 1: Move gallery tests to intended ownership boundaries**
 
 Update imports to `face_labeller.gallery`. Patch `face_labeller.gallery.cv2.imread`, `face_labeller.gallery._embed_gallery_photo`, and the perception boundary rather than facade globals. Retain the golden gallery key from Task 4.
 
-- [ ] **Step 2: Extract gallery discovery, cache, and pin construction**
+- [x] **Step 2: Extract gallery discovery, cache, and pin construction**
 
 Move extension filtering, deterministic path ordering, per-photo hashing, gallery metadata/key generation, image embedding, `build_pins`, cache loading/writing, `load_gallery`, and `leave_one_out_report` into `gallery.py`.
 
 Use shared hash/version/embedding validation helpers from `cache.py`; do not generalize the two NPZ formats into a speculative storage framework.
 
-- [ ] **Step 3: Preserve gallery cache reconciliation exactly**
+- [x] **Step 3: Preserve gallery cache reconciliation exactly**
 
 Keep one embedding per photo, normalized relative source paths, photo hashes in entries rather than configuration identity, compatible keyed variants, removal of deleted entries, and pin strategy applied only after cache reconciliation.
 
-- [ ] **Step 4: Re-export and verify gallery behavior**
+- [x] **Step 4: Re-export and verify gallery behavior**
 
 Run:
 
@@ -420,7 +424,7 @@ Expected: minimum-image, invalid-image, mean/all pin, leave-one-out, cold/warm/a
 - Consumes: all stable modules from Tasks 1-5.
 - Produces: `video.process_video(...) -> RunSummary`, `core.run(cfg) -> RunSummary`, and thin `label_video.main(argv) -> int`.
 
-- [ ] **Step 1: Write failing core sequencing and CLI delegation tests**
+- [x] **Step 1: Write failing core sequencing and CLI delegation tests**
 
 Add `test_core_runs_preflight_before_gallery` with ordered spies asserting:
 
@@ -431,13 +435,13 @@ validate paths -> inspect video -> build plan -> open cache -> print plan
 
 Add `test_main_delegates_to_core` asserting parsed `Config` is passed once to `core.run` and success returns 0. Add `test_main_maps_core_error_to_nonzero` asserting `ERROR: <message>` goes to stderr and return value is 1.
 
-- [ ] **Step 2: Move streaming execution into `video.py`**
+- [x] **Step 2: Move streaming execution into `video.py`**
 
 Move `process_video`, progress reporting, capture/writer lifecycle, pending frame buffers, cache updates, matching, CSV logging, drawing, and output publication from `label_video.py` to `video.py`.
 
 Retain the exact signature introduced in Task 2. Validate that optional `metadata`, `plan`, and `face_cache` are either all supplied or all absent. Preserve bounded pending frames, every-frame output, selected-frame-relative stride, failed-frame handling, label distribution, and timing fields.
 
-- [ ] **Step 3: Implement the single execution core**
+- [x] **Step 3: Implement the single execution core**
 
 Implement:
 
@@ -447,7 +451,7 @@ def run(cfg: Config) -> RunSummary: ...
 
 Move cross-path validation, metadata/plan/cache construction, deterministic preflight printing, gallery timing/loading, `process_video` invocation, and final completion printing into `core.py`. Use `perception.model_load_seconds()` snapshots to preserve existing gallery/video model timing output without reading a mutable global.
 
-- [ ] **Step 4: Reduce `label_video.py` to facade and process adapter**
+- [x] **Step 4: Reduce `label_video.py` to facade and process adapter**
 
 Keep explicit compatibility imports and:
 
@@ -464,11 +468,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 Retain the `SystemExit(main())` guard. Remove all duplicated implementations after their owning-module tests pass. Ensure no `face_labeller` module imports `label_video`.
 
-- [ ] **Step 5: Add stale-plan and direct-caller coverage**
+- [x] **Step 5: Add stale-plan and direct-caller coverage**
 
 Test that `process_video(cfg, gallery)` still self-plans. Test that passing only one/two preflight objects raises clearly. Test that a streaming capture whose FPS, width, height, or frame count differs from `VideoMetadata` fails before output publication.
 
-- [ ] **Step 6: Verify the complete modular application**
+- [x] **Step 6: Verify the complete modular application**
 
 Run:
 
@@ -489,7 +493,7 @@ Expected: all fast tests pass; facade is thin; package dependency direction is a
 - Modify: `AGENTS.md`
 - Verify: `docs/design/design-plan.md`
 - Verify: `docs/implementation/implementation-plan.md`
-- Verify: `docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`
+- Verify: `docs/archive/specs/2026-09-26-label-video-modularization-design.md`
 - Verify: all production/test files from Tasks 1-6
 - Generate only in ignored paths: short-run video, CSV, cache, and comparison evidence
 
@@ -497,11 +501,11 @@ Expected: all fast tests pass; facade is thin; package dependency direction is a
 - Consumes: completed modular pipeline and existing owner-curated input/gallery/cache assets.
 - Produces: architecture documentation, compatibility evidence, timing comparison, and the M4 modularization STOP report.
 
-- [ ] **Step 1: Update architecture and developer documentation**
+- [x] **Step 1: Update architecture and developer documentation**
 
 Update README architecture/module descriptions and keep the existing CLI examples. Update AGENTS repository layout and commands so future work imports and patches owning modules. Reaffirm the M4 checkpoint, final stride 1, CPU-only requirement, cache semantics, and M6 prohibition.
 
-- [ ] **Step 2: Run the complete automated verification**
+- [x] **Step 2: Run the complete automated verification**
 
 Run:
 
@@ -514,13 +518,13 @@ git diff --check
 
 Expected: all applicable tests pass. Record exact pass/skip counts and durations. If a slow test requires a missing owner/private fixture, report the skip/block precisely rather than substituting downloaded data.
 
-- [ ] **Step 3: Run a short cold/warm parity window**
+- [x] **Step 3: Run a short cold/warm parity window**
 
 Use an owner-approved existing short window and isolated ignored cache/output paths. Run once cold and once warm with identical CLI options. Record command, total/window/selected/cached/to-infer counts, model/gallery/perception/elapsed timings, faces, failures, labels, output metadata, and CSV row count.
 
 The warm run must report zero frames to infer and must prove no model build/represent call through existing instrumentation/tests.
 
-- [ ] **Step 4: Compare observable artifacts**
+- [x] **Step 4: Compare observable artifacts**
 
 Against the equivalent pre-refactor behavior or retained fixture expectations, verify:
 
@@ -532,7 +536,7 @@ Against the equivalent pre-refactor behavior or retained fixture expectations, v
 
 Do not claim byte-identical MP4 output because codec/container metadata may vary; compare decoded frames or representative pixels when exact rendering parity is needed.
 
-- [ ] **Step 5: Audit repository state**
+- [x] **Step 5: Audit repository state**
 
 Run:
 
@@ -544,7 +548,7 @@ git check-ignore data/video-source/nimbus.mp4 cache output
 
 Expected: only intended source/test/docs changes are unignored; private/generated assets remain ignored.
 
-- [ ] **Step 6: Report the modularization STOP gate**
+- [x] **Step 6: Report the modularization STOP gate**
 
 Report:
 
@@ -559,7 +563,7 @@ Report:
 
 Stop and wait for Eli's approval before M4 Step 13.
 
-- [ ] **Step 7: Commit only if explicitly requested**
+- [x] **Step 7: Commit only if explicitly requested**
 
 If Eli asks after reviewing the STOP report, run the full relevant test suite immediately before committing, stage only the modularization source/tests/docs, and use a plain-language message such as:
 

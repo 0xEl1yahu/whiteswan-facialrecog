@@ -1,12 +1,11 @@
 # M6 Temporal Smoothing and Audio Delivery
 
+> **Historical snapshot as of `93bec05`.** Tracker behavior remains valid, while later
+> gallery and threshold work supersedes the label counts and artifact hashes. See
+> [`docs/STATUS.md`](../STATUS.md) for current state.
+
 Date: 2026-09-26
 Branch: `investigation/video-runtime`
-
-> Historical evidence: this report predates the 2026-09-27 gallery/video perception
-> consistency correction. Tracker findings remain valid, but the accepted unsmoothed label
-> counts and artifact hashes are now recorded in
-> [the consistency correction report](m4-gallery-perception-consistency.md).
 
 ## Outcome
 

@@ -1,14 +1,12 @@
 # M4 Full Stride-1 Run
 
-Status: full run complete; STOP for owner review before M5 tuning
+> **Historical snapshot as of `c7736ca`.** This is the original two-reference-per-character
+> run. Later gallery and threshold decisions supersede its labels and artifact hashes. See
+> [`docs/STATUS.md`](../STATUS.md) for current state.
+
+Status at the time: full run complete; STOP for owner review before M5 tuning
 
 Date: 2026-09-26
-
-> Historical baseline: this report records the original two-reference-per-character run.
-> The current accepted artifacts were refreshed after the owner added Harry side references,
-> a Hermione three-quarter reference, and the gallery-perception consistency correction.
-> Current counts, audio validation, and hashes are in
-> [the gallery-perception consistency report](m4-gallery-perception-consistency.md).
 
 ## Command
 

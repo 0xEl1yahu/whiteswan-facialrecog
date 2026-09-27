@@ -1,6 +1,9 @@
 # M2 Gallery Baseline — 2026-09-26
 
-This file preserves the M2 gallery results before later additions or tuning. Future runs
+> **Historical snapshot as of `f8faf96`.** Superseded by later gallery additions and M5
+> tuning. See [`docs/STATUS.md`](../STATUS.md) for the current gallery and decisions.
+
+This file preserves the M2 gallery results before later additions or tuning. Later runs
 should be recorded separately and compared with this baseline rather than replacing it.
 
 ## Decision

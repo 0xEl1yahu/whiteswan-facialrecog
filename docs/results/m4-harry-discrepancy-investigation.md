@@ -1,6 +1,11 @@
 # M4 Harry Potter Discrepancy Investigation
 
-Status: diagnosis complete; no gallery, threshold, tracker, or output behavior changed
+> **Historical snapshot as of `c7736ca`.** Later gallery additions addressed the documented
+> coverage gap; M6 subsequently implemented opt-in tracking and automatic audio restoration.
+> See [`docs/STATUS.md`](../STATUS.md) for current behavior.
+
+Status at the time: diagnosis complete; no gallery, threshold, tracker, or output behavior
+changed
 
 Date: 2026-09-26
 

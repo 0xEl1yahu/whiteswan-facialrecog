@@ -33,7 +33,7 @@ def test_cli_defaults_match_design_spec() -> None:
     assert cfg.ref_dir == Path("references")
     assert cfg.stride == 1
     assert cfg.batch_size == 8
-    assert cfg.threshold == pytest.approx(0.30)
+    assert cfg.threshold == pytest.approx(0.305)
     assert cfg.pin_strategy == "all"
     assert cfg.normalization == "base"
     assert cfg.max_faces is None
@@ -55,6 +55,14 @@ def test_cli_defaults_match_design_spec() -> None:
     assert cfg.detector_black_halo == 32
     assert "perception-pipeline" not in help_text
     assert "detector-black-halo" not in help_text
+    assert "default: 1; source: D2" in help_text
+    assert "default: 8; source: D2" in help_text
+    assert "default: 0.305; source: D3" in help_text
+    assert "default: all; source: D1" in help_text
+    assert "default: base; source: D3" in help_text
+    assert "default: no cap; source: R1" in help_text
+    assert "default: cache; source: cache design" in help_text
+    assert "default: output/matches.csv; source: deliverable contract" in help_text
 
 
 def test_cli_accepts_approved_overrides() -> None:

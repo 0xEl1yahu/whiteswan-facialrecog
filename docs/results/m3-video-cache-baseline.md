@@ -1,5 +1,8 @@
 # M3 video and FaceCache baseline
 
+> **Historical snapshot as of `f8c9200`.** Superseded by the optimized M4 full run. See
+> [`docs/STATUS.md`](../STATUS.md) for the current pipeline and artifacts.
+
 Date: 2026-09-26
 Environment: CPU, Python 3.11, DeepFace 0.0.101, RetinaFace 0.0.18,
 Facenet512, batch size 8

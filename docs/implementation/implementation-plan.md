@@ -8,6 +8,9 @@
 
 **Tech Stack:** Python 3.11, DeepFace 0.0.101, RetinaFace 0.0.18, TensorFlow/`tf-keras`, Facenet512, OpenCV, NumPy, pytest, gdown.
 
+**Live status:** `docs/STATUS.md` records current decisions and artifacts. This is the only
+live checklist; detailed completed plans are archived under `docs/archive/`.
+
 **Spec:** `docs/design/design-plan.md`
 
 ## Global Constraints
@@ -23,8 +26,8 @@
 - Do not change the approved data contracts or `label_video.py` CLI without further owner approval.
 - Cache one gallery embedding per photo and perception results per absolute frame index. Cache keys contain only upstream embedding inputs, never threshold, pin strategy, stride, frame window, or smoothing.
 - Use owner-decided `all` pins (D1). For D2, use batch size 8, stride 3 for quick smoke
-  tests, stride 2 for review previews, and stride 1 for final output. Retain threshold 0.30
-  and base normalization as provisional until the D3 gate.
+  tests, stride 2 for review previews, and stride 1 for final output. D3 selected threshold
+  `0.305` with `base` normalization on 2026-09-27.
 - Profile the real perception path before starting M4's full 3,044-frame run. Keep the
   current per-frame RetinaFace path as the correctness baseline; an event-driven gate or
   tracker may be proposed from evidence but cannot replace it without owner approval
@@ -36,7 +39,7 @@
 - `label_video.py` — thin executable and compatibility facade.
 - `face_labeller/` — contracts, configuration, perception, caches, gallery, recognition,
   rendering, evidence, video planning/streaming, and the single execution core, as approved
-  in `docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`.
+  in `docs/archive/specs/2026-09-26-label-video-modularization-design.md`.
 - `analyse_matches.py` — M5 evidence generation over `matches.csv`, keyed caches, and source video.
 - `requirements.txt` — exact compatible versions recorded at M0 and updated only when an approved milestone adds a dependency.
 - `pytest.ini` — declares the `slow` marker.
@@ -452,7 +455,7 @@ acceptance criteria, and owner approval are added to this plan.
 
 - [x] **Step 12: Complete the approved modularization and preflight checkpoint**
 
-Execute `docs/superpowers/plans/2026-09-26-label-video-modularization.md` through its STOP
+Execute `docs/archive/plans/2026-09-26-label-video-modularization.md` through its STOP
 gate. Preserve the CLI, approved data contracts, cache keys/schemas, CSV schema, output
 behavior, lazy model loading, and zero-inference replay. Do not begin the full 3,044-frame
 run until Eli accepts the checkpoint report.
@@ -464,7 +467,7 @@ merged to `main` in PR #1 before the runtime optimization work began.
 - [x] **Step 13: Generate and validate the full stride-1 vertical slice**
 
 First execute the approved exact-resize black-margin optimization plan at
-`docs/superpowers/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its complete
+`docs/archive/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its complete
 300-frame comparison against the 1,262-face M3 baseline is a mandatory STOP gate. Eli must
 accept its detection/embedding/identity/runtime evidence before this step continues.
 
@@ -488,7 +491,7 @@ frames cached, zero frames to infer, `model=0.000s`, and `perception=0.000s`. In
 tests fail explicitly if either model or perception is invoked during the warm replay.
 
 Consistency correction (owner-approved 2026-09-27): execute
-`docs/superpowers/plans/2026-09-27-gallery-perception-consistency.md` before M5. Reference
+`docs/archive/plans/2026-09-27-gallery-perception-consistency.md` before M5. Reference
 photos must share the optimized `embed_faces` path with video faces. Gallery cache schema 2
 adds the perception pipeline and detector halo, while the complete video FaceCache remains
 compatible and must replay with zero video inference. Regenerate the unsmoothed video/CSV,
@@ -523,49 +526,66 @@ full-run evidence, and tests are committed as a distinct M4 checkpoint in this b
 - Consumes: source video, `matches.csv`, Gallery/FaceCache metadata, and separate base/Facenet2018 sample-run CSVs.
 - Produces: `load_match_rows(path)`, `build_distance_histograms(rows)`, `select_near_threshold(rows, threshold, margin, limit)`, `build_contact_sheet(video, rows, output, cell_size, columns)`, comparison summaries, and a written recommendation without changing defaults.
 
-- [ ] **Step 1: Write failing pure-analysis tests**
+- [x] **Step 1: Write failing pure-analysis tests**
 
 Test strict CSV schema validation, empty input, grouping by `nearest_name`, fixed deterministic histogram bins supplied by configuration, stable near-threshold ordering by absolute margin then frame/face index, per-character limits, and summary counts for assigned/Unknown results.
 
-- [ ] **Step 2: Verify analysis tests fail**
+- [x] **Step 2: Verify analysis tests fail**
 
 Run: `.venv/bin/python -m pytest tests/test_analysis.py -v`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement CSV analysis and report data generation**
+- [x] **Step 3: Implement CSV analysis and report data generation**
 
 Keep tunables as analysis CLI arguments with documented defaults. Use the standard library, NumPy, and OpenCV; do not add a dataframe dependency unless owner-approved evidence shows it is necessary.
 
-- [ ] **Step 4: Write failing contact-sheet tests**
+- [x] **Step 4: Write failing contact-sheet tests**
 
 Use a tiny fixture video and rows containing valid, clipped, zero-area, missing-frame, and repeated-frame crops. Assert deterministic layout, labels, dimensions, safe skipping, and no model imports/calls.
 
-- [ ] **Step 5: Implement contact-sheet extraction and pass tests**
+- [x] **Step 5: Implement contact-sheet extraction and pass tests**
 
 Run: `.venv/bin/python -m pytest tests/test_analysis.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 6: Generate baseline evidence**
+- [x] **Step 6: Generate baseline evidence**
 
 Read the M4 CSV and compatible cache metadata to produce distance histograms by nearest character, label counts, and a near-threshold contact sheet. Record obvious false positives, false negatives, uncertain crops, and detector misses separately.
 
-- [ ] **Step 7: Run normalization A/B on the same deterministic sample**
+- [x] **Step 7: Run normalization A/B on the same deterministic sample**
 
 Select sample frame indices once and persist them in the analysis report. Run base and Facenet2018 on exactly those frames and the full gallery, creating separate configuration-keyed gallery/FaceCaches and CSVs. Repeat both runs warm to prove each normalization variant is reused rather than overwritten.
 
-- [ ] **Step 8: Write the recommendation without changing defaults**
+- [x] **Step 8: Write the recommendation without changing defaults**
 
 Create `output/tuning-report.md` containing sample selection, versions, cache keys, threshold evidence, normalization comparison, errors observed, timings, limitations from two photos per character, and a recommendation for D3. Do not modify threshold or normalization defaults.
 
-- [ ] **Step 9: Report the M5 STOP gate**
+Initial execution note (2026-09-27; superseded by the follow-up below): the completed
+report recommended retaining threshold `0.30` and normalization `base`. The 190-crop
+threshold review contained no confirmed true extras, so it did not support raising the
+threshold. Facenet2018 kept identical geometry for all 767 sampled detections but lost 72
+correct labels and gained 14, a net loss of 58. The candidate cold run took 331.746 seconds
+and its warm replay took 3.670 seconds. At that point, production defaults and the accepted
+output remained unchanged pending D3.
+
+Follow-up evidence (2026-09-27): an isolated full-cache A/B replay compared `0.30` with
+`0.31`. All 5,353 upstream rows were identical and 111 assignments changed from Unknown;
+visual review found 110 correct new names and one new Harry-to-Ron error. The intermediate
+`0.305` threshold accepts 62 correct names without that observed error. The audio-preserved
+candidate and exact evidence are documented in `docs/results/m5-threshold-ab.md`. Eli chose
+`0.305` with `base`; the production default and one-shot runner now record that D3 decision.
+
+- [x] **Step 9: Report the M5 STOP gate**
 
 Report how evidence improves R2 without sacrificing Unknown coverage under R1, tests, artifacts, timings, recommendation, and open questions. Stop all work until Eli decides D3 and either commands M6 or skips to M7.
 
-- [ ] **Step 10: Commit only if explicitly requested**
+- [x] **Step 10: Commit only if explicitly requested**
 
 If Eli asks, commit source/tests/docs only as `feat: add evidence-based match analysis`; do not commit private images, caches, or generated video.
+
+Execution note (2026-09-27): committed as `0d272ab` with the final D3 default and evidence.
 
 ---
 
@@ -574,8 +594,8 @@ If Eli asks, commit source/tests/docs only as `feat: add evidence-based match an
 > Do not start this task unless Eli explicitly commands M6 after the M5 gate.
 
 Execution ruling (2026-09-26): Eli explicitly authorized M6 while independently sourcing
-new gallery images. M5/D3 remains open; M6 did not change the provisional threshold or
-normalization. Full-clip evidence kept smoothing opt-in because lifetime voting reduced
+new gallery images. M5/D3 was open at that point, so M6 did not change the then-provisional
+threshold or normalization. Full-clip evidence kept smoothing opt-in because lifetime voting reduced
 named coverage, while automatic audio restoration was accepted for the one-shot runner.
 
 **Files:**
@@ -635,10 +655,9 @@ from the M4 runtime optimization.
 
 ### Task 7: M7 — Packaging and Reproducibility
 
-> Checkpoint status (2026-09-26): not started as the final delivery gate. This branch is
-> being prepared as a reviewable M4/M6 checkpoint PR. M5/D3 remains unresolved, so M7 must
-> not claim final threshold/normalization decisions even though several verification and
-> documentation prerequisites have already been exercised.
+> Checkpoint status (updated 2026-09-27): not started as the final delivery gate. M5/D3 is
+> resolved at threshold `0.305` with `base` normalization. M7 still must reconcile and
+> verify the final deliverables before claiming final delivery.
 
 **Files:**
 - Modify: `README.md`
@@ -651,27 +670,27 @@ from the M4 runtime optimization.
 - Consumes: every owner-approved milestone and D1-D3 decision.
 - Produces: reproducible documentation, clean tracked source, pinned dependencies, verified final video/CSV, and a final gate report.
 
-- [ ] **Step 1: Reconcile final approved decisions and commands**
+- [x] **Step 1: Reconcile final approved decisions and commands**
 
 Record D1-D3, final stride 1, chosen batch size, threshold, normalization, optional M6 status, exact input/output commands, and cache-replay commands. Remove provisional wording only where Eli has decided.
 
-- [ ] **Step 2: Complete README requirements**
+- [x] **Step 2: Complete README requirements**
 
 Cover setup, video download, two-image minimum and incremental gallery growth, run commands, cache keys/reuse, architecture, design rationale, runtime/label results, known failures, privacy/gitignore behavior, audio/H.264 status, and what to do with more time.
 
-- [ ] **Step 3: Verify reproducibility from pinned dependencies**
+- [x] **Step 3: Verify reproducibility from pinned dependencies**
 
 Run `.venv/bin/python -m pip check`, imports, all non-slow tests, approved slow tests, and `python label_video.py --help`. If practical, install `requirements.txt` into a temporary Python 3.11 environment and rerun imports/non-model unit tests.
 
-- [ ] **Step 4: Verify final deliverables**
+- [x] **Step 4: Verify final deliverables**
 
 Programmatically compare input/final-output frame count, FPS, dimensions, and duration; validate every CSV row and required column; confirm the final run used stride 1; record SHA-256 hashes and file sizes; and manually spot-check representative frames.
 
-- [ ] **Step 5: Audit repository cleanliness and exclusions**
+- [x] **Step 5: Audit repository cleanliness and exclusions**
 
 Run `git status --short`, `git diff --check`, and `git check-ignore` for the video, reference images, weights if local, caches, debug crops, CSV, and output video. Ensure no private/generated binary is staged or tracked.
 
-- [ ] **Step 6: Run the final verification suite**
+- [x] **Step 6: Run the final verification suite**
 
 Run:
 
@@ -682,6 +701,16 @@ Run:
 
 Expected: all applicable approved tests pass. Report exact counts, skips, durations, final runtime, label distribution, known limitations, and how the deliverables satisfy R1/R2.
 
-- [ ] **Step 7: Commit only if explicitly requested**
+Execution note (2026-09-27): the supported one-shot runner published the accepted `0.305`
+video and CSV from 3,044/3,044 cache hits with zero inference. Validation confirmed 3,044
+MPEG-4 frames plus AAC audio, 5,353 unique CSV rows, the documented label distribution,
+and current hashes in `docs/STATUS.md`. Representative close, profile, crowd, and
+near-threshold frames were inspected. The final verification passed 252 non-slow tests,
+3 slow tests, `pip check`, compilation, CLI help, Markdown-link validation, ignore checks,
+and `git diff --check`.
+
+- [x] **Step 7: Commit only if explicitly requested**
 
 If Eli asks, create the requested packaging commit without adding any ignored/private artifact.
+
+Execution note (2026-09-27): Eli explicitly requested the packaging commit and branch push.

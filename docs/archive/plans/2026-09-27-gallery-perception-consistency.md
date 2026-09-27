@@ -1,5 +1,9 @@
 # Gallery Perception Consistency Implementation Plan
 
+> **Archived completed plan.** Implemented in commit `0c7549a` and merged in PR #2.
+> Checkboxes below are historical execution records; current status lives in
+> [`docs/STATUS.md`](../../STATUS.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Embed reference photos through the same optimized RetinaFace alignment and Facenet512 path as video faces, invalidate only incompatible gallery caches, and regenerate the accepted video and CSV from the existing complete FaceCache.
@@ -8,7 +12,7 @@
 
 **Tech Stack:** Python 3.11, DeepFace 0.0.101, RetinaFace 0.0.18, Facenet512, TensorFlow/`tf-keras`, OpenCV, NumPy, pytest, ffmpeg/ffprobe.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
+**Spec:** `docs/archive/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
 
 ## Global Constraints
 
@@ -87,7 +91,7 @@ Expected: all focused tests pass.
 ### Task 2: Regenerate From Cached Video and Publish Evidence
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
+- Modify: `docs/archive/specs/2026-09-26-retinaface-black-margin-optimization-design.md`
 - Modify: `docs/design/design-plan.md`
 - Modify: `docs/implementation/implementation-plan.md`
 - Modify: `README.md`
