@@ -1,5 +1,8 @@
 # M5 threshold A/B: 0.30 versus 0.31
 
+> **Current D3 decision evidence as of `0d272ab`.** Accepted artifact identity and remaining
+> delivery work are tracked in [`docs/STATUS.md`](../STATUS.md).
+
 Date: 2026-09-27
 Status: D3 approved and verified at threshold `0.305`, normalization `base`
 
@@ -14,8 +17,8 @@ stride-1 frame plan remain fixed.
 
 ## Inputs and isolation
 
-- Branch: `feature/m5-threshold-ab`
-- Worktree: `/private/tmp/whiteswan-facialrecog-m5-threshold-ab`
+- Evidence branch: `feature/m5-threshold-ab`; promoted to `feature/m5-evidence-tuning` in
+  commit `0d272ab`.
 - Source video SHA-256:
   `67c428ef51ccd86ccbe55a08a6e00efe5540eb6387bb03ff0fd4aade8fbba353`
 - Threshold-0.30 CSV SHA-256:
@@ -23,7 +26,7 @@ stride-1 frame plan remain fixed.
 - Threshold-0.31 CSV SHA-256:
   `e70454003bb0409d1e42b25c8c435826b741fa4409834a6b7a63c98cb3e6a284`
 
-The accepted output was not overwritten. The 0.31 video, CSV, review manifest,
+At this A/B stage, the accepted output was not overwritten. The 0.31 video, CSV, review manifest,
 contact sheets, and source-context images are isolated under the gitignored
 `output/analysis/threshold-ab-030-031/` directory.
 
@@ -139,3 +142,7 @@ omitted `--threshold`, proving the configured default rather than an explicit ov
 The candidate was remuxed with source audio. `ffprobe` confirmed MPEG-4 video and AAC
 audio, 3,044 video frames, 1920x1080, 29.97 fps, and 101.568 seconds. Audio-preserved video
 SHA-256: `fa37fd119ff5c0fc21d208df9a1efc6c4351dc32d9d48a804a657b9f343968ec`.
+
+After approval, the same verified CSV and audio-preserved video were promoted to the
+accepted `output/` paths. Their identity and current milestone state are maintained in
+[`docs/STATUS.md`](../STATUS.md).

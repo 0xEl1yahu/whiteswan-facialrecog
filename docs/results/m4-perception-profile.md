@@ -1,5 +1,9 @@
 # M4 perception runtime checkpoint
 
+> **Historical snapshot as of `dd980fb`.** The black-margin optimization and complete
+> stride-1 run subsequently resolved this checkpoint. See [`docs/STATUS.md`](../STATUS.md)
+> for measured current performance.
+
 Date: 2026-09-26. CPU only; Python 3.11, DeepFace 0.0.101, RetinaFace 0.0.18,
 Facenet512, base normalization, `all` gallery pins, batch size 8. This is the
 Step 10–11 checkpoint before the 3,044-frame M4 run. No full run or optimization

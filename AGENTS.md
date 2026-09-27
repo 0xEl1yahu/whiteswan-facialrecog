@@ -16,9 +16,10 @@ Stack is fixed: Python + DeepFace, detector RetinaFace, recogniser Facenet512, c
 
 Every milestone must move these forward, and every gate report must say how.
 
-**The spec is [docs/design/design-plan.md](docs/design/design-plan.md). Read it in full
-before doing any work.**
-It is the source of truth; this file only summarises how to work with it.
+**Read [docs/STATUS.md](docs/STATUS.md) and
+[docs/design/design-plan.md](docs/design/design-plan.md) in full before doing any work.**
+STATUS is the source of current milestone/artifact state; the design plan is the normative
+requirements source. This file only summarises how to work with them.
 The approved implementation sequence is
 [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
 Read both documents before starting a milestone.
@@ -51,6 +52,8 @@ Read both documents before starting a milestone.
 ```
 docs/design/design-plan.md   spec (source of truth)
 docs/implementation/         approved implementation plans
+docs/STATUS.md               current decisions, gallery, artifacts, and milestone
+docs/archive/                completed plans/specs and historical investigations
 label_video.py               thin CLI and compatibility facade
 face_labeller/contracts.py   stable dataclasses and fixed model/name constants
 face_labeller/config.py      CLI parser, defaults, and validation
@@ -103,8 +106,8 @@ scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream veri
 - M6 was explicitly approved on 2026-09-26. `--smooth` now performs downstream IoU
   tracking without altering raw CSV evidence or cache identity.
 - The one-shot runner restores source AAC audio and verifies both streams before publishing.
-- A full cache-only D3 replay recovered 62 visually confirmed correct labels with no
-  observed new wrong name; the final M7 packaging gate remains open.
+- The accepted `0.305` output recovered 62 visually confirmed correct labels with no
+  observed new wrong name and preserves source AAC audio; M7 verification is complete.
 - Preflight reports the exact window, selected indices, cache hits, and frames to infer
   before gallery/model work.
 - Final delivery remains stride 1 and CPU only.

@@ -1,5 +1,9 @@
 # Label Video Modularization Design
 
+> **Archived approved design.** Implemented and merged in commit `79431f5` (PR #1).
+> Current architecture and status live in [`docs/STATUS.md`](../../STATUS.md) and the
+> authoritative design plan.
+
 **Status:** Approved by Eli on 2026-09-26
 
 **Date:** 2026-09-26

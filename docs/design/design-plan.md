@@ -18,6 +18,8 @@ Required stack: Python + DeepFace, detector = RetinaFace, recogniser = Facenet51
 Accuracy bar: "reasonable given the model's capabilities". Not perfect.
 
 Deliverables: `label_video.py`, `requirements.txt`, `README.md`, output video, `matches.csv`.
+Current milestone, decision, gallery, and accepted-artifact identity is recorded only in
+`docs/STATUS.md`; this document remains the normative requirements source.
 
 Priorities, in order:
 1. A first vertical slice (M1-M4: video in, labelled video + CSV out) that is built and
@@ -119,7 +121,7 @@ source, 2026-09-26):
   removes only grid-aligned black margin while retaining a 32 px detector halo. For 1080p
   this changes the detector tensor from 1820x1024 to 988x576 without changing the resized
   content pixels. See
-  `docs/superpowers/specs/2026-09-26-retinaface-black-margin-optimization-design.md`.
+  `docs/archive/specs/2026-09-26-retinaface-black-margin-optimization-design.md`.
 - DeepFace calls RetinaFace with threshold=0.9, hard-coded and NOT configurable through any
   represent()/extract_faces() argument (models/face_detection/RetinaFace.py:48). Real
   detections have face_confidence >= 0.9. face_confidence is rounded to 2 dp.
@@ -188,7 +190,7 @@ class Track:              # used only in M6
 ## 6. Module specs
 
 The original single-file layout is amended by the owner-approved modularization design in
-`docs/superpowers/specs/2026-09-26-label-video-modularization-design.md`. The public command
+`docs/archive/specs/2026-09-26-label-video-modularization-design.md`. The public command
 remains `python label_video.py ...`; `label_video.py` becomes a thin executable and
 compatibility facade over the `face_labeller/` package. Existing data contracts, CLI flags,
 cache formats, matching rules, and output formats remain unchanged.
@@ -414,12 +416,12 @@ M4 Names (completes the vertical slice)
   assignments; relabelling at a different threshold replays from the FaceCache without
   loading Facenet512 or making inference calls.
   Before the full-video run, complete the approved modularization and video-preflight plan
-  in `docs/superpowers/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
+  in `docs/archive/plans/2026-09-26-label-video-modularization.md`. Its STOP gate must
   prove CLI/data/cache compatibility and short cold/warm output parity. This is an M4
   refactor checkpoint, not a new product milestone.
   Before the full-video run, execute the owner-approved exact-resize black-margin
   optimization in
-  `docs/superpowers/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its 300-frame
+  `docs/archive/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its 300-frame
   gate must match all 1,262 M3 baseline faces at IoU >= 0.5, manually explain additions,
   enumerate identity changes, beat steady perception wall time by at least 50%, and prove
   a schema-2 warm replay performs zero inference. Stop again for owner review before all

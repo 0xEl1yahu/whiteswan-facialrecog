@@ -1,11 +1,13 @@
 # M4 RetinaFace Black-Margin Optimization Gate
 
-Status: technical acceptance gate passed; awaiting Eli's review; STOP before the full
-3,044-frame run
+> **Historical snapshot as of `c7736ca`.** Eli accepted this gate and the optimized full
+> run completed. See [`docs/STATUS.md`](../STATUS.md) for current state.
+
+Status: accepted and implemented
 
 Date: 2026-09-26
 
-Post-gate outcome: Eli approved the full run. It completed in 33m03s with all 3,044 frames,
+Post-gate outcome: the full run completed in 33m03s with all 3,044 frames,
 5,353 detections, and zero failures. See [M4 Full Stride-1 Run](m4-full-run.md).
 
 ## Environment and versions

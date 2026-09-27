@@ -9,13 +9,12 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: optimized M4, gallery/video perception consistency, M5/D3 tuning, and optional
-> M6 are complete. The final M7 packaging gate remains open.**
-> The
-> source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
-> milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
-> This README is filled in as each milestone lands.
-> Results, timings and the pinned versions are added at the gates listed below.
+> **Status: M0–M7 implementation and verification are complete on the feature branch;
+> commit/PR integration remains.**
+> [Current project status](docs/STATUS.md) records the active decisions and accepted
+> artifact hashes. The normative spec is [docs/design/design-plan.md](docs/design/design-plan.md),
+> and the only live checklist is
+> [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
 
 ## How it works
 
@@ -251,8 +250,8 @@ A follow-up exhaustive threshold A/B replay compared `0.30` with `0.31` over the
 cached video. All 5,353 detections were identical and exactly 111 Unknown assignments
 changed: visual review found 110 correct new names and one new Harry-to-Ron error. A
 `0.305` replay accepts 62 of those correct names without accepting the observed error.
-Eli selected `0.305` with `base`; the default, one-shot runner, cache-only replay, and
-audio-preserved candidate validation are recorded in
+Eli selected `0.305` with `base`; the default, one-shot runner, accepted cache-only replay,
+and audio-preserved output validation are recorded in
 [the M5 threshold A/B report](docs/results/m5-threshold-ab.md).
 
 ## Milestones
@@ -268,11 +267,11 @@ Each milestone ends with a stop for the owner to test and review.
 | M4 | Names and `matches.csv`. **First complete working version, checked here.** | |
 | M5 | Tuning evidence: distance histograms, near-threshold crops | D3: `0.305`, `base` selected 2026-09-27 |
 | M6 | Optional temporal smoothing, automatic audio restoration, H.264 guidance | Owner approved 2026-09-26 |
-| M7 | Packaging | |
+| M7 | Packaging | Verified; requested commit/PR remain |
 
 This branch applies the completed M5/D3 decision after the M4/M6 checkpoint. Threshold
-`0.305` and `base` normalization are now the production defaults. M7 is the later
-final-delivery gate, not a claim made by this checkpoint.
+`0.305` and `base` normalization are the production defaults, and M7 verification is
+complete. Integration remains a separate owner-requested action.
 
 ## Tests
 
@@ -361,9 +360,8 @@ section, added after M4 and M5, will report how often each happens in this clip.
   stride 2 for review previews, and stride 1 for final output.
 - The dated baseline is retained in `docs/results/m3-video-cache-baseline.md`.
 
-The detailed M4 hotspot timings and runtime projections are retained in
-`docs/results/m4-perception-profile.md`; the final full-video runtime and label
-distribution will be added after the owner-approved run.
+The detailed M4 hotspot timings and runtime projections are retained in the historical
+`docs/results/m4-perception-profile.md`; the measured full-video result follows below.
 
 ### M4 black-margin optimization improvement
 
@@ -396,8 +394,8 @@ remains in [the optimization gate](docs/results/m4-retinaface-black-margin-optim
 Harry's low seven-label count was traced to insufficient gallery coverage rather than the
 detector: inspected Harry faces were boxed, but 780 probable Harry detections in a
 full-cache diagnostic remained Unknown. The two baseline Harry references are themselves
-0.372545 apart, above the 0.30 threshold. The owner should add left/right three-quarter and
-profile references before M5 tuning. The detailed evidence, tracker status, and tested
+0.372545 apart, above the 0.30 threshold. The owner subsequently added left/right
+three-quarter and profile references before M5 tuning. The historical diagnosis and tested
 audio-remux path are in
 [the Harry discrepancy investigation](docs/results/m4-harry-discrepancy-investigation.md).
 
@@ -412,8 +410,8 @@ the optimized video path while reusing all 3,044 video-frame cache entries. The 
 output retains 5,353 rows and 4,435 Unknown results: Harry 266, Hermione 168, McGonagall 34,
 Snape 262, and Ron 188. Seventy-four borderline assignments changed; visual review found
 37 correct named gains, 36 correct labels moving to Unknown, and one incorrect Harry-on-Ron
-label corrected to Unknown. No new wrong-name assignment appeared. Full measurements,
-changed frames, media validation, and current hashes are in
+label corrected to Unknown. No new wrong-name assignment appeared. Full historical
+measurements, changed frames, media validation, and then-current hashes are in
 [the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).
 
 After that historical correction, the owner added one more Hermione view and three more
@@ -422,6 +420,11 @@ Ron views. The current supported gallery therefore contains 17 photos: Harry 4, 
 now assigns Harry 266, Hermione 198, Ron 214, McGonagall 34, Snape 262, and Unknown 4,379.
 These are the frozen inputs to M5; the linked consistency report remains the earlier
 13-photo measurement rather than silently rewriting historical evidence.
+
+The accepted D3 replay now uses threshold `0.305` with the same 17-photo gallery. It keeps
+all 5,353 detections and assigns Harry 298, Hermione 211, McGonagall 35, Snape 276, Ron
+216, and Unknown 4,317. The video contains all 3,044 frames plus copied AAC audio. Current
+artifact hashes and media validation live only in [docs/STATUS.md](docs/STATUS.md).
 
 ### M6 temporal smoothing and delivery
 
@@ -436,4 +439,4 @@ enabled by the one-shot runner. The complete evidence, limitations, audio verifi
 then-current artifact hashes, and review paths are in
 [the historical M6 gate report](docs/results/m6-temporal-smoothing-and-audio.md). Current
 unsmoothed artifact hashes are in
-[the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).
+[docs/STATUS.md](docs/STATUS.md).

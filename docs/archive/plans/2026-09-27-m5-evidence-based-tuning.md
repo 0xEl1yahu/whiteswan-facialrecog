@@ -1,5 +1,9 @@
 # M5 Evidence-Based Threshold and Normalization Plan
 
+> **Archived completed plan.** M5/D3 was implemented in commit `0d272ab`; M7 is tracked
+> only in the live implementation plan. Checkboxes below are historical execution records;
+> current status lives in [`docs/STATUS.md`](../../STATUS.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. M5 is sequential: build the analysis tooling, freeze the sample, generate evidence, review it, and stop for the owner's D3 decision.
 
 **Goal:** Decide whether the production cosine threshold should remain `0.30` and whether Facenet512 normalization should remain `base` or change to `Facenet2018`, using reproducible evidence from the accepted stride-1 run and a fixed 300-frame A/B sample.
@@ -377,7 +381,7 @@ model-free.
 
   Present the recommendation, raw trade-offs, tests, timings, artifacts, limitations, and open questions to Eli. Stop. Do not change defaults, regenerate the accepted full video under a new D3 choice, start M7, or claim final delivery until Eli approves the threshold and normalization.
 
-- [ ] **Step 6: Commit only if explicitly requested**
+- [x] **Step 6: Commit only if explicitly requested**
 
   Follow-up A/B note (2026-09-27): after the initial STOP report, the owner requested an
   isolated worktree and a direct threshold comparison. A full cache-only `0.31` replay
@@ -406,4 +410,5 @@ model-free.
   AAC audio in the candidate.
 - [x] Leave the detector, recognizer, pin strategy, tracker, smoothing defaults, gallery
   contents, and reference-image format contract unchanged.
-- [ ] Complete M7 packaging and final-delivery verification separately.
+- M7 packaging and final-delivery verification continue only in the live implementation
+  plan; they are not part of this archived M5 plan.

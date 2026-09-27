@@ -164,7 +164,7 @@ def test_fresh_clone_sets_up_downloads_video_and_runs_full_pipeline(
     assert "ffprobe" in media_calls
     assert (
         "Run report: "
-        f"{root / 'docs/results/m4-gallery-perception-consistency.md'}"
+        f"{root / 'docs/STATUS.md'}"
         in result.stdout
     )
 
