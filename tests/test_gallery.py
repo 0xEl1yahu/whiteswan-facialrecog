@@ -12,6 +12,7 @@ from face_labeller import gallery, perception
 from face_labeller.config import Config
 from face_labeller.contracts import (
     CHARACTER_NAMES,
+    Face,
     GalleryPhoto,
 )
 from face_labeller.gallery import (
@@ -53,12 +54,11 @@ def create_gallery_files(
             (owner_dir / filename).write_bytes(bytes([owner_index, photo_index]))
 
 
-def install_fake_deepface(
+def install_fake_perception(
     monkeypatch: pytest.MonkeyPatch,
     *,
     invalid_markers: set[int] | None = None,
     calls: list[dict] | None = None,
-    model_calls: list[str] | None = None,
 ) -> None:
     invalid_markers = invalid_markers or set()
 
@@ -67,25 +67,29 @@ def install_fake_deepface(
         marker = payload[0] * 10 + payload[1]
         return np.full((8, 8, 3), marker, dtype=np.uint8)
 
-    class FakeDeepFace:
-        @staticmethod
-        def build_model(model_name: str) -> object:
-            if model_calls is not None:
-                model_calls.append(model_name)
-            return object()
-
-        @staticmethod
-        def represent(**kwargs: object) -> list[dict]:
-            if calls is not None:
-                calls.append(kwargs)
-            image = np.asarray(kwargs["img_path"])
+    def fake_embed_faces(frames: list[np.ndarray], cfg: Config) -> list[list[Face]]:
+        if calls is not None:
+            calls.append({"frames": frames, "cfg": cfg})
+        output: list[list[Face]] = []
+        for image in frames:
             marker = int(image[0, 0, 0])
             if marker in invalid_markers:
-                raise ValueError("no face detected")
-            return [{"embedding": unit_embedding(marker).tolist()}]
+                output.append([])
+                continue
+            output.append(
+                [
+                    Face(
+                        box=(0, 0, image.shape[1] - 1, image.shape[0] - 1),
+                        landmarks={},
+                        embedding=unit_embedding(marker),
+                        det_conf=0.95,
+                    )
+                ]
+            )
+        return output
 
     monkeypatch.setattr(gallery.cv2, "imread", fake_imread)
-    monkeypatch.setattr(perception, "_get_deepface", lambda: FakeDeepFace)
+    monkeypatch.setattr(perception, "embed_faces", fake_embed_faces)
 
 
 @pytest.fixture(autouse=True)
@@ -113,7 +117,7 @@ def test_gallery_validation_accepts_extensions_case_insensitively_in_sorted_orde
     create_gallery_files(root, filenames=("z.JPEG", "A.PNG"))
     for owner in CHARACTER_NAMES:
         (root / owner / "ignored.gif").write_bytes(b"ignored")
-    install_fake_deepface(monkeypatch)
+    install_fake_perception(monkeypatch)
 
     gallery = load_gallery(root, make_config(tmp_path))
 
@@ -131,13 +135,13 @@ def test_gallery_validation_skips_no_face_image_and_reports_counts(
 ) -> None:
     root = tmp_path / "references"
     create_gallery_files(root, filenames=("01.jpg", "02.jpg", "03.jpg"))
-    install_fake_deepface(monkeypatch, invalid_markers={2, 12, 22, 32, 42})
+    install_fake_perception(monkeypatch, invalid_markers={2, 12, 22, 32, 42})
 
     gallery = load_gallery(root, make_config(tmp_path))
 
     output = capsys.readouterr().out
     assert "WARNING" in output
-    assert "no face detected" in output
+    assert "DeepFace returned no usable face" in output
     assert "Harry Potter: found=3 used=2 skipped=1" in output
     assert gallery.meta["photo_count"] == 10
 
@@ -147,31 +151,41 @@ def test_gallery_validation_fails_when_skips_leave_fewer_than_two_images(
 ) -> None:
     root = tmp_path / "references"
     create_gallery_files(root)
-    install_fake_deepface(monkeypatch, invalid_markers={1})
+    install_fake_perception(monkeypatch, invalid_markers={1})
 
     with pytest.raises(ValueError, match="Harry Potter.*1 valid.*minimum is 2"):
         load_gallery(root, make_config(tmp_path))
 
 
-def test_gallery_validation_embeds_with_explicit_gallery_arguments(
+def test_embed_gallery_photo_uses_shared_perception(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = tmp_path / "references"
-    create_gallery_files(root)
+    path = tmp_path / "reference.jpg"
+    path.write_bytes(bytes([2, 3]))
     calls: list[dict] = []
-    install_fake_deepface(monkeypatch, calls=calls)
+    install_fake_perception(monkeypatch, calls=calls)
+    cfg = make_config(tmp_path, normalization="Facenet2018", max_faces=None)
 
-    load_gallery(root, make_config(tmp_path, normalization="Facenet2018"))
+    embedding = gallery._embed_gallery_photo(path, cfg)
 
-    assert len(calls) == 10
-    assert all(call["model_name"] == "Facenet512" for call in calls)
-    assert all(call["detector_backend"] == "retinaface" for call in calls)
-    assert all(call["enforce_detection"] is True for call in calls)
-    assert all(call["align"] is True for call in calls)
-    assert all(call["normalization"] == "Facenet2018" for call in calls)
-    assert all(call["max_faces"] == 1 for call in calls)
-    assert all(call["l2_normalize"] is True for call in calls)
-    assert all(call["expand_percentage"] == 0 for call in calls)
+    np.testing.assert_array_equal(embedding, unit_embedding(23))
+    assert len(calls) == 1
+    assert len(calls[0]["frames"]) == 1
+    assert int(calls[0]["frames"][0][0, 0, 0]) == 23
+    assert calls[0]["cfg"].max_faces == 1
+    assert calls[0]["cfg"].normalization == "Facenet2018"
+    assert cfg.max_faces is None
+
+
+def test_embed_gallery_photo_rejects_no_usable_face(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "reference.jpg"
+    path.write_bytes(bytes([2, 3]))
+    install_fake_perception(monkeypatch, invalid_markers={23})
+
+    with pytest.raises(ValueError, match="DeepFace returned no usable face"):
+        gallery._embed_gallery_photo(path, make_config(tmp_path))
 
 
 def test_gallery_pins_mean_are_renormalized_and_sorted() -> None:
@@ -238,13 +252,15 @@ def test_gallery_cache_key_contains_every_upstream_configuration_input(
 ) -> None:
     cfg = make_config(tmp_path, use_cache=True)
     expected_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "model_name": "Facenet512",
         "detector_backend": "retinaface",
         "normalization": "base",
         "align": True,
         "max_faces": 1,
         "expand_percentage": 0,
+        "perception_pipeline": "retinaface_exact_resize_crop_v1",
+        "detector_black_halo": 32,
         "l2_normalize": True,
         "versions": VERSIONS,
     }
@@ -277,6 +293,8 @@ def test_gallery_cache_key_excludes_all_downstream_matching_and_tracking_choices
         ("normalization", "Facenet2018"),
         ("align", False),
         ("expand_percentage", 5),
+        ("perception_pipeline", "different-pipeline"),
+        ("detector_black_halo", 64),
     ],
 )
 def test_gallery_cache_key_changes_for_upstream_config(
@@ -304,37 +322,20 @@ def test_gallery_cache_cold_then_warm_avoids_all_model_work(
 ) -> None:
     root = tmp_path / "references"
     create_gallery_files(root)
-    represent_calls: list[dict] = []
-    model_calls: list[str] = []
-    detector_calls: list[str] = []
-
-    class FakeRetinaFace:
-        @staticmethod
-        def build_model() -> object:
-            detector_calls.append("retinaface")
-            return object()
-
-    monkeypatch.setattr(perception, "_get_retinaface", lambda: FakeRetinaFace)
-    install_fake_deepface(
-        monkeypatch, calls=represent_calls, model_calls=model_calls
-    )
+    perception_calls: list[dict] = []
+    install_fake_perception(monkeypatch, calls=perception_calls)
     cfg = make_config(tmp_path, use_cache=True)
 
     cold = load_gallery(root, cfg)
-    assert len(represent_calls) == 10
-    assert model_calls == ["Facenet512"]
-    assert detector_calls == ["retinaface"]
+    assert len(perception_calls) == 10
     assert len(list(cfg.cache_dir.glob("gallery_*.npz"))) == 1
 
-    represent_calls.clear()
-    model_calls.clear()
+    perception_calls.clear()
     monkeypatch.setattr(perception, "_MODEL_BUILT", False)
     monkeypatch.setattr(perception, "_DETECTOR_MODEL", None)
     warm = load_gallery(root, replace(cfg, pin_strategy="all"))
 
-    assert represent_calls == []
-    assert model_calls == []
-    assert detector_calls == ["retinaface"]
+    assert perception_calls == []
     assert warm.meta["source_paths"] == cold.meta["source_paths"]
     assert warm.pins.shape == (10, 512)
 
@@ -345,7 +346,7 @@ def test_gallery_cache_adds_and_modifies_only_one_photo(
     root = tmp_path / "references"
     create_gallery_files(root)
     calls: list[dict] = []
-    install_fake_deepface(monkeypatch, calls=calls)
+    install_fake_perception(monkeypatch, calls=calls)
     cfg = make_config(tmp_path, use_cache=True)
     load_gallery(root, cfg)
 
@@ -366,7 +367,7 @@ def test_gallery_cache_deletion_removes_only_that_entry(
     root = tmp_path / "references"
     create_gallery_files(root, filenames=("01.jpg", "02.jpg", "03.jpg"))
     calls: list[dict] = []
-    install_fake_deepface(monkeypatch, calls=calls)
+    install_fake_perception(monkeypatch, calls=calls)
     cfg = make_config(tmp_path, use_cache=True)
     load_gallery(root, cfg)
 
@@ -385,7 +386,7 @@ def test_gallery_cache_normalization_variants_coexist_and_are_reused(
     root = tmp_path / "references"
     create_gallery_files(root)
     calls: list[dict] = []
-    install_fake_deepface(monkeypatch, calls=calls)
+    install_fake_perception(monkeypatch, calls=calls)
     cfg = make_config(tmp_path, use_cache=True)
 
     load_gallery(root, cfg)
@@ -406,7 +407,7 @@ def test_gallery_cache_corrupt_or_mismatched_metadata_is_a_clean_miss(
     root = tmp_path / "references"
     create_gallery_files(root)
     calls: list[dict] = []
-    install_fake_deepface(monkeypatch, calls=calls)
+    install_fake_perception(monkeypatch, calls=calls)
     cfg = make_config(tmp_path, use_cache=True)
     load_gallery(root, cfg)
     cache_path = next(cfg.cache_dir.glob("gallery_*.npz"))

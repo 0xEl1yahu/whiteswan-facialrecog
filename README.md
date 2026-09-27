@@ -9,8 +9,8 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: optimized M4 and optional M6 are complete. M5 threshold/normalization tuning
-> and the final M7 packaging gate remain open.**
+> **Status: optimized M4, gallery/video perception consistency, and optional M6 are
+> complete. M5 threshold/normalization tuning and the final M7 packaging gate remain open.**
 > The
 > source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
 > milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
@@ -26,10 +26,11 @@ nimbus.mp4 ─► read frame ─► RetinaFace + Facenet512 ─► FaceCache ─
                                                                         └─► output/matches.csv
 ```
 
-1. **Gallery.** Each reference photo is detected, aligned and turned into a 512-d
-   embedding. Embeddings are cached **one per photo**, so adding a photo re-embeds only
-   that photo. The owner-selected default keeps one pin per photo (`all`); switching to one
-   averaged pin per character (`mean`) for comparison needs no re-embedding.
+1. **Gallery.** Each reference photo uses the same optimized detection, local alignment,
+   and embedding path as video faces, capped to the largest face for that photo. Embeddings
+   are cached **one per photo**, so adding a photo re-embeds only that photo. The
+   owner-selected default keeps one pin per photo (`all`); switching to one averaged pin
+   per character (`mean`) for comparison needs no re-embedding.
 2. **Video.** Every `stride`-th frame uses direct RetinaFace detection on an exact resized
    crop with redundant black margin removed, then locally aligns faces and batch-embeds the
    crops with Facenet512. Results are cached in the FaceCache, so later threshold or pin
@@ -106,15 +107,18 @@ more incrementally, growing toward 5–10 clear, varied photos from *Philosopher
 the actors are the same age as in the clip. A photo with no detectable face is skipped with
 a warning. Fewer than two usable photos for any required character stops the run.
 
-Gallery embeddings are stored in `cache/gallery_<key>.npz`, one record per photo. The key
-contains only model/preprocessing settings and installed library versions. Each record has
-its relative path and SHA-256, so unchanged photos are reused while added or modified
-photos alone are embedded and deleted photos alone are removed. `mean` and `all` pins are
-derived from the same records and never cause re-embedding.
+Gallery embeddings are stored in `cache/gallery_<key>.npz`, one record per photo. Schema 2
+keys the model, normalization/alignment settings, optimized perception-pipeline name,
+32 px detector halo, and installed library versions. Each record has its relative path and
+SHA-256, so unchanged photos are reused while added or modified photos alone are embedded
+and deleted photos alone are removed. `mean` and `all` pins are derived from the same
+records and never cause re-embedding.
 
 Video FaceCache schema 2 includes the perception-pipeline name and 32 px detector halo.
 The first optimized run therefore creates a new `faces_*.npz`; schema-1 files remain on
-disk but are not loaded as optimized results. Gallery cache keys and files remain valid.
+disk but are not loaded as optimized results. The gallery's schema-2 correction likewise
+leaves older cache files on disk but does not load their old-path embeddings. Gallery-only
+changes never invalidate compatible cached video detections or embeddings.
 
 ## Usage
 
@@ -340,8 +344,17 @@ audio-remux path are in
 The owner subsequently added two Harry views and one Hermione view. The incremental gallery
 refresh embedded only those three images. A 12.839 s full-cache replay raised Harry from 7
 to 255 assignments and Hermione from 152 to 174, with all 270 changes moving from Unknown
-to the intended owner and no existing named assignment displaced. The current accepted
-video and CSV use this refreshed gallery.
+to the intended owner and no existing named assignment displaced. Those figures are the
+historical pre-consistency result.
+
+The gallery/video consistency correction then re-embedded all 13 reference photos through
+the optimized video path while reusing all 3,044 video-frame cache entries. The regenerated
+output retains 5,353 rows and 4,435 Unknown results: Harry 266, Hermione 168, McGonagall 34,
+Snape 262, and Ron 188. Seventy-four borderline assignments changed; visual review found
+37 correct named gains, 36 correct labels moving to Unknown, and one incorrect Harry-on-Ron
+label corrected to Unknown. No new wrong-name assignment appeared. Full measurements,
+changed frames, media validation, and current hashes are in
+[the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).
 
 ### M6 temporal smoothing and delivery
 
@@ -353,5 +366,7 @@ direct visual example: the isolated raw `Unknown` flicker is carried as Harry by
 Across the whole refreshed clip, however, lifetime majority voting was too sticky and
 reduced named coverage (for example Snape 275 → 60), so smoothing remains opt-in and is not
 enabled by the one-shot runner. The complete evidence, limitations, audio verification,
-current artifact hashes, and review paths are in
-[the M6 gate report](docs/results/m6-temporal-smoothing-and-audio.md).
+then-current artifact hashes, and review paths are in
+[the historical M6 gate report](docs/results/m6-temporal-smoothing-and-audio.md). Current
+unsmoothed artifact hashes are in
+[the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).

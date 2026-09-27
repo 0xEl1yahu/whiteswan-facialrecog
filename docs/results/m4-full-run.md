@@ -5,9 +5,10 @@ Status: full run complete; STOP for owner review before M5 tuning
 Date: 2026-09-26
 
 > Historical baseline: this report records the original two-reference-per-character run.
-> The current accepted artifacts were refreshed after the owner added Harry side references
-> and a Hermione three-quarter reference. Current counts, audio validation, and hashes are
-> in [the M6 and gallery-refresh report](m6-temporal-smoothing-and-audio.md).
+> The current accepted artifacts were refreshed after the owner added Harry side references,
+> a Hermione three-quarter reference, and the gallery-perception consistency correction.
+> Current counts, audio validation, and hashes are in
+> [the gallery-perception consistency report](m4-gallery-perception-consistency.md).
 
 ## Command
 

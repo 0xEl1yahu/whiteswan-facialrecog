@@ -162,7 +162,11 @@ def test_fresh_clone_sets_up_downloads_video_and_runs_full_pipeline(
     assert "-map 0:v:0 -map 1:a:0" in media_calls
     assert "-c:v copy -c:a copy -shortest" in media_calls
     assert "ffprobe" in media_calls
-    assert "Run report:" in result.stdout
+    assert (
+        "Run report: "
+        f"{root / 'docs/results/m4-gallery-perception-consistency.md'}"
+        in result.stdout
+    )
 
 
 def test_missing_curated_references_stops_before_setup(tmp_path: Path) -> None:

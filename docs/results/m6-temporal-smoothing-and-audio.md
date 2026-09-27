@@ -3,6 +3,11 @@
 Date: 2026-09-26
 Branch: `investigation/video-runtime`
 
+> Historical evidence: this report predates the 2026-09-27 gallery/video perception
+> consistency correction. Tracker findings remain valid, but the accepted unsmoothed label
+> counts and artifact hashes are now recorded in
+> [the consistency correction report](m4-gallery-perception-consistency.md).
+
 ## Outcome
 
 M6 is implemented as a downstream, opt-in presentation stage. It does not change face

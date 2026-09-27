@@ -89,7 +89,7 @@ def test_face_cache_key_contains_video_hash_and_every_upstream_input(
     ).hexdigest()
 
 
-def test_gallery_key_stays_compatible_and_face_key_matches_schema_two_golden(
+def test_gallery_key_tracks_shared_perception_and_face_key_keeps_schema_two_golden(
     tmp_path: Path,
 ) -> None:
     video_path = tmp_path / "fixture.mp4"
@@ -97,7 +97,7 @@ def test_gallery_key_stays_compatible_and_face_key_matches_schema_two_golden(
     cfg = make_config(tmp_path)
 
     assert gallery_cache_key(cfg, VERSIONS) == (
-        "799c07df4ebcc29fefc98c3feb18383d84f269e9f09ff4afbfe270233161f0fc"
+        "b2f6da96a721de17cd3c938c01ecf0e7b937304f2ab76ef2ca502be758cf86e3"
     )
     assert face_cache_key(video_path, cfg, VERSIONS) == (
         "dd3d80568f2d064f978fe2c1eca7478550068c08a160d3bab8037dbe2f0c6175"

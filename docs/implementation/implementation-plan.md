@@ -487,6 +487,14 @@ Execution note (2026-09-26): threshold, gallery, and smoothing replays reported 
 frames cached, zero frames to infer, `model=0.000s`, and `perception=0.000s`. Integration
 tests fail explicitly if either model or perception is invoked during the warm replay.
 
+Consistency correction (owner-approved 2026-09-27): execute
+`docs/superpowers/plans/2026-09-27-gallery-perception-consistency.md` before M5. Reference
+photos must share the optimized `embed_faces` path with video faces. Gallery cache schema 2
+adds the perception pipeline and detector halo, while the complete video FaceCache remains
+compatible and must replay with zero video inference. Regenerate the unsmoothed video/CSV,
+preserve AAC audio, enumerate and inspect changed threshold decisions, and publish the
+evidence without changing the provisional threshold or normalization.
+
 - [x] **Step 15: Report the M4 STOP gate**
 
 Report how the stride-1 video and Unknown handling satisfy R1/R2, all test results, full/warm timings, output validation, label distribution, visual findings, and open questions. Stop before tuning.

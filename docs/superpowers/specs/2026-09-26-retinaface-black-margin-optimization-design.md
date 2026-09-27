@@ -265,3 +265,23 @@ the unchanged production code from before this amendment and its preserved schem
 
 After this gate, stop and report. Do not run all 3,044 frames until Eli approves the
 implementation evidence.
+
+## 14. Gallery Perception Consistency Correction
+
+Owner approval on 2026-09-27 extends the optimized perception contract to reference
+photos. The accepted video path detects, aligns, and embeds through
+`face_labeller.perception.embed_faces`, while the original gallery path still called
+`DeepFace.represent(... detector_backend="retinaface")` directly. That left the two sides
+of each cosine comparison on slightly different crop pipelines.
+
+Gallery indexing must now decode each owner-curated image and call the same
+`embed_faces([image], replace(cfg, max_faces=1))` boundary used for video perception. An
+empty result retains the existing invalid-reference warning/skip behavior. The gallery
+continues to store one L2-normalised Facenet512 embedding per valid photo and the public
+CLI, data contracts, threshold, normalization, and `all` pin strategy remain unchanged.
+
+Gallery cache schema 2 adds `perception_pipeline` and `detector_black_halo` to its metadata
+and key. This deliberately invalidates old-path gallery embeddings. The video FaceCache is
+independent and unchanged: a compatible 3,044-frame cache replay must perform no RetinaFace
+or Facenet512 video inference. The approved implementation and evidence steps are in
+`docs/superpowers/plans/2026-09-27-gallery-perception-consistency.md`.

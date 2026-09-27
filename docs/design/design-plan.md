@@ -228,9 +228,10 @@ lower-level modules never call back into `core.py`.
 
 `load_gallery(ref_dir: Path, cfg) -> Gallery`
   Structure: ref_dir/<Character Name>/*.{jpg,jpeg,png}. The folder name is the label.
-  Embed each image with the configured model, detector, normalization and alignment plus
-  max_faces=1, enforce_detection=True and l2_normalize=True. On failure, log a warning and
-  skip the image.
+  Decode each image and pass it through the same optimized `embed_faces` perception path
+  as video input, using an immutable config copy with max_faces=1. An empty detection is an
+  invalid reference: log a warning and skip the image rather than embedding the whole
+  photo.
   Fail loudly if any required character folder has fewer than 2 valid images. Two images
   per character are the initial minimum; additional owner-curated images may be added
   incrementally, with 5-10 varied, clear images per character the target.
@@ -238,11 +239,13 @@ lower-level modules never call back into `core.py`.
   path, file hash). Reconcile the active cache against the current gallery: embed only new
   or changed photos and remove entries for deleted photos without re-embedding unchanged
   ones. The configuration key contains every non-photo upstream embedding input: model,
-  detector, normalization, align, max_faces=1, expand_percentage, L2-normalization setting,
-  and installed versions of deepface, retina-face, tensorflow and opencv. Photo hashes live
-  in the cache entries, not the configuration key, so gallery additions and removals do not
-  discard unchanged embeddings. Compatible keyed caches coexist, so a later return to a
-  previous configuration reuses its embeddings.
+  detector, normalization, align, max_faces=1, expand_percentage, perception pipeline,
+  detector black halo, L2-normalization setting, and installed versions of deepface,
+  retina-face, tensorflow and opencv. Gallery cache schema 2 separates the old direct
+  DeepFace path from the shared optimized path. Photo hashes live in the cache entries, not
+  the configuration key, so gallery additions and removals do not discard unchanged
+  embeddings. Compatible keyed caches coexist, so a later return to a previous
+  configuration reuses its embeddings.
   Apply the pin strategy at load time, per cfg.pin_strategy ("mean" or "all"):
   "all" uses the per-photo embeddings directly; "mean" averages per character and
   re-normalises. The strategy is NOT part of the cache key.
@@ -449,7 +452,10 @@ Unit (pytest, no model download needed):
 - Pin strategy: "mean" and "all" derived from the same synthetic per-photo cache.
 - Gallery cache: adding or changing one photo embeds only that photo; deleting one removes
   only its entry; changing an upstream embedding input selects a different keyed cache;
+  changing the perception pipeline or detector halo selects a different keyed cache;
   changing pin strategy does not.
+- Gallery/video consistency: gallery photos call the shared optimized perception boundary
+  with max_faces=1; an empty result is skipped and never becomes a whole-photo embedding.
 - Lazy model loading: fully cached gallery and FaceCache replay does not call build_model.
 - Exact detector input: 1080p produces the pixel-identical 988x576 grid crop; odd,
   portrait, and extreme-aspect frames retain valid symmetric geometry.
