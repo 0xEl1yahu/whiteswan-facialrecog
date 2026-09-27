@@ -36,6 +36,7 @@ from face_labeller.perception import (
 )
 from face_labeller.recognition import cosine_distances, match, unknown_matches
 from face_labeller.rendering import BOX_COLORS, LANDMARK_COLOR, draw
+from face_labeller.tracking import Tracker, iou
 from face_labeller.video import (
     build_frame_plan,
     inspect_video,

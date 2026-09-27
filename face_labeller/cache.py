@@ -15,7 +15,7 @@ from face_labeller.config import Config
 from face_labeller.contracts import Face
 
 
-FACE_CACHE_SCHEMA_VERSION = 1
+FACE_CACHE_SCHEMA_VERSION = 2
 VERSION_DISTRIBUTIONS = {
     "deepface": "deepface",
     "retinaface": "retina-face",
@@ -58,6 +58,8 @@ def face_cache_metadata(
         "align": cfg.align,
         "max_faces": cfg.max_faces,
         "expand_percentage": cfg.expand_percentage,
+        "perception_pipeline": cfg.perception_pipeline,
+        "detector_black_halo": cfg.detector_black_halo,
         "l2_normalize": True,
         "versions": dict(sorted(versions.items())),
     }

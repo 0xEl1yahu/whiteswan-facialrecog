@@ -59,6 +59,7 @@ face_labeller/cache.py       cache identity and persistent FaceCache
 face_labeller/perception.py  lazy DeepFace models, detection, and embeddings
 face_labeller/gallery.py     reference discovery, per-photo cache, and pins
 face_labeller/recognition.py pure cosine matching
+face_labeller/tracking.py    pure IoU + optional temporal display-name smoothing
 face_labeller/rendering.py   pure box, label, and landmark drawing
 face_labeller/evidence.py    matches.csv and debug-crop publication
 face_labeller/video.py       video preflight, frame plan, and streaming execution
@@ -68,6 +69,7 @@ data/video-source/nimbus.mp4 input clip, Philosopher's Stone (gitignored)
 data/reference-images/<Name>/ owner-curated gallery (gitignored; owner supplies before M2)
 cache/                       keyed gallery caches (one embedding/photo) + FaceCache (gitignored)
 output/                      labelled video, matches.csv, debug crops (gitignored)
+scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream verification
 ```
 
 ## Environment
@@ -89,6 +91,7 @@ output/                      labelled video, matches.csv, debug crops (gitignore
 - `.venv/bin/python -m pytest tests/test_face_cache.py tests/test_video_integration.py -v`
   for M3 cache and video integration.
 - `.venv/bin/python -m pytest tests/test_matching.py -v` for M4 matching and CSV logging.
+- `.venv/bin/python -m pytest tests/test_tracker.py -v` for M6 IoU and smoothing.
 - `.venv/bin/python -m pytest tests/test_core.py tests/test_video_plan.py -v` for preflight
   and orchestration.
 - `.venv/bin/python -m pytest -m "not slow"` for unit tests.
@@ -96,13 +99,16 @@ output/                      labelled video, matches.csv, debug crops (gitignore
 - `python label_video.py --input ... --output ... --ref-dir ...`
 
 ## Current checkpoint
-- M4 modularization must stop for owner review before the full 3,044-frame M4 run.
+- The optimized 3,044-frame M4 stride-1 run is complete and cached; M5 threshold and
+  normalization remain provisional while the owner expands Harry's gallery.
+- M6 was explicitly approved on 2026-09-26. `--smooth` now performs downstream IoU
+  tracking without altering raw CSV evidence or cache identity.
+- The one-shot runner restores source AAC audio and verifies both streams before publishing.
+- The current branch is an M4/M6 checkpoint for review. M5/D3 and the final M7 packaging
+  gate remain open; threshold 0.30 and base normalization are still provisional.
 - Preflight reports the exact window, selected indices, cache hits, and frames to infer
   before gallery/model work.
-- Cache formats and keys remain compatible: threshold and pin-strategy changes reuse
-  embeddings, and stride changes calculate only missing frames.
-- Final delivery uses stride 1 and CPU only. M6 work remains prohibited without the
-  owner's explicit command.
+- Final delivery remains stride 1 and CPU only.
 
 ## Git
 - Commit only when asked. Branch off `main` for milestone work.

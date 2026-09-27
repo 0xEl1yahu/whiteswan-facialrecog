@@ -9,8 +9,8 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: M4 matching, runtime profiling, and modularization checkpoint complete;
-> awaiting owner approval before the full 3,044-frame run.**
+> **Status: optimized M4, gallery/video perception consistency, and optional M6 are
+> complete. M5 threshold/normalization tuning and the final M7 packaging gate remain open.**
 > The
 > source-of-truth spec is [docs/design/design-plan.md](docs/design/design-plan.md), and the
 > milestone sequence is [docs/implementation/implementation-plan.md](docs/implementation/implementation-plan.md).
@@ -26,13 +26,15 @@ nimbus.mp4 ─► read frame ─► RetinaFace + Facenet512 ─► FaceCache ─
                                                                         └─► output/matches.csv
 ```
 
-1. **Gallery.** Each reference photo is detected, aligned and turned into a 512-d
-   embedding. Embeddings are cached **one per photo**, so adding a photo re-embeds only
-   that photo. The owner-selected default keeps one pin per photo (`all`); switching to one
-   averaged pin per character (`mean`) for comparison needs no re-embedding.
-2. **Video.** Every `stride`-th frame goes through RetinaFace and Facenet512. The results
-   are cached in the FaceCache, so later runs with a new threshold or pin strategy replay
-   from the cache and never re-run detection.
+1. **Gallery.** Each reference photo uses the same optimized detection, local alignment,
+   and embedding path as video faces, capped to the largest face for that photo. Embeddings
+   are cached **one per photo**, so adding a photo re-embeds only that photo. The
+   owner-selected default keeps one pin per photo (`all`); switching to one averaged pin
+   per character (`mean`) for comparison needs no re-embedding.
+2. **Video.** Every `stride`-th frame uses direct RetinaFace detection on an exact resized
+   crop with redundant black margin removed, then locally aligns faces and batch-embeds the
+   crops with Facenet512. Results are cached in the FaceCache, so later threshold or pin
+   changes replay without either model.
 3. **Match.** Each face takes the name of its nearest gallery pin if the cosine distance is
    below the threshold (default 0.30, DeepFace's value for Facenet512), and "Unknown"
    otherwise.
@@ -105,13 +107,39 @@ more incrementally, growing toward 5–10 clear, varied photos from *Philosopher
 the actors are the same age as in the clip. A photo with no detectable face is skipped with
 a warning. Fewer than two usable photos for any required character stops the run.
 
-Gallery embeddings are stored in `cache/gallery_<key>.npz`, one record per photo. The key
-contains only model/preprocessing settings and installed library versions. Each record has
-its relative path and SHA-256, so unchanged photos are reused while added or modified
-photos alone are embedded and deleted photos alone are removed. `mean` and `all` pins are
-derived from the same records and never cause re-embedding.
+Gallery embeddings are stored in `cache/gallery_<key>.npz`, one record per photo. Schema 2
+keys the model, normalization/alignment settings, optimized perception-pipeline name,
+32 px detector halo, and installed library versions. Each record has its relative path and
+SHA-256, so unchanged photos are reused while added or modified photos alone are embedded
+and deleted photos alone are removed. `mean` and `all` pins are derived from the same
+records and never cause re-embedding.
+
+Video FaceCache schema 2 includes the perception-pipeline name and 32 px detector halo.
+The first optimized run therefore creates a new `faces_*.npz`; schema-1 files remain on
+disk but are not loaded as optimized results. The gallery's schema-2 correction likewise
+leaves older cache files on disk but does not load their old-path embeddings. Gallery-only
+changes never invalidate compatible cached video detections or embeddings.
 
 ## Usage
+
+For a fresh macOS/Linux checkout, place at least two owner-curated reference photos in each
+required character folder, then run the complete setup and full stride-1 pipeline with:
+
+```bash
+./scripts/run_full_pipeline.sh
+```
+
+The launcher locates the repository root, requires Python 3.11, creates `.venv`, installs
+the pinned dependencies, downloads the fixed Nimbus source video if it is absent, validates
+the five reference folders, and runs the approved CPU-only command. `ffmpeg` and `ffprobe`
+must be available on `PATH`: the launcher restores the source AAC track, verifies that the
+staged result has video and audio streams, and only then publishes the video and CSV. A
+failed pipeline or remux preserves the previously published artifacts. It is safe to rerun:
+the existing environment, source video, gallery cache, and FaceCache are reused. Reference
+photos are never downloaded. Set `PYTHON_BIN=/path/to/python3.11` only when Python 3.11 is
+not available as `python3.11` on `PATH`.
+
+The manual equivalent is below.
 
 Run the labelling pipeline:
 ```bash
@@ -132,16 +160,41 @@ Useful options:
 - `--no-cache` forces a full recompute.
 - `--csv` sets the evidence file (default: `output/matches.csv`).
 - `--debug-crops` saves clipped original-frame face crops beside the CSV under `debug/crops/`.
+- `--smooth` enables M6 temporal label smoothing. Greedy IoU tracking uses `--iou-min 0.3`
+  and expires a track after `--track-ttl 15` unseen frames by default. It changes rendered
+  names only; detection, embeddings, and the raw CSV assignments remain unchanged.
 
 Outputs go to `output/` (the video, `matches.csv`, and optional debug crops). Caches go to
 `cache/`. Both folders are gitignored.
 The CSV writes one row for each displayed face on each output frame, with frame and face
 indices, box, detection confidence, nearest pin owner and distance, threshold, assigned
 name, and match confidence. Rejected matches display `Unknown` while retaining the
-nearest pin owner for later review. A successful run replaces its CSV; a failed run
-preserves the prior file. The CLI reports total elapsed time and gallery/model-load time
-separately. Compatible gallery
-and frame caches let a threshold change relabel the video without running the models.
+nearest pin owner for later review. With smoothing enabled, this remains the unsmoothed
+evidence rather than silently rewriting the model's frame-level decision. A successful run
+replaces its CSV; a failed run preserves the prior file. The CLI reports total elapsed time
+and gallery/model-load time separately. Compatible gallery and frame caches let a threshold,
+tracking, or pin-strategy change relabel the video without running the models.
+
+### Manual audio and H.264 delivery
+
+The Python/OpenCV writer produces video only. The one-shot launcher automatically copies
+the source AAC audio into that labelled stream without re-encoding either stream. For a
+browser-oriented H.264 deliverable, keep the direct CLI output at a separate path and run:
+
+```bash
+ffmpeg -i output/nimbus_labelled.video-only.mp4 \
+  -i data/video-source/nimbus.mp4 \
+  -map 0:v:0 -map 1:a:0 -c:v libx264 -preset medium -crf 18 \
+  -pix_fmt yuv420p -c:a copy -shortest output/nimbus_labelled.h264.mp4
+
+ffprobe -v error \
+  -show_entries stream=index,codec_type,codec_name,duration,r_frame_rate \
+  -show_entries format=duration -of json output/nimbus_labelled.h264.mp4
+```
+
+This re-encodes only the labelled video and copies the existing AAC track. `ffprobe` should
+show one H.264 video stream and one AAC audio stream with matching approximately 101.6 s
+durations for the full Nimbus clip.
 
 ## Milestones
 
@@ -155,14 +208,19 @@ Each milestone ends with a stop for the owner to test and review.
 | M3 | Boxes across the full video, FaceCache, timings | D2: batch 8; smoke stride 3; preview stride 2; final stride 1 |
 | M4 | Names and `matches.csv`. **First complete working version, checked here.** | |
 | M5 | Tuning evidence: distance histograms, near-threshold crops | D3: threshold and normalisation |
-| M6 | *Only on owner command:* smoother labels, audio put back, H.264 encode | |
+| M6 | Optional temporal smoothing, automatic audio restoration, H.264 guidance | Owner approved 2026-09-26 |
 | M7 | Packaging | |
+
+This branch is an M4/M6 checkpoint. The accepted runtime and gallery improvements are
+ready for review, but threshold `0.30` and `base` normalization remain provisional until
+M5. M7 is the later final-delivery gate, not a claim made by this checkpoint.
 
 ## Tests
 
 ```bash
 .venv/bin/python -m pytest tests/test_environment.py -m slow -v
 .venv/bin/python -m pytest tests/test_matching.py -v
+.venv/bin/python -m pytest tests/test_tracker.py -v
 .venv/bin/python -m pytest tests/test_core.py tests/test_video_plan.py -v
 .venv/bin/python -m pytest -m "not slow"
 .venv/bin/python -m pytest -m slow
@@ -170,10 +228,10 @@ Each milestone ends with a stop for the owner to test and review.
 
 ## Design notes
 
-- **Stride, not downscaling.** RetinaFace resizes every frame so its short side is
-  1024 px, so shrinking frames first saves nothing. Processing fewer frames (`stride`) is
-  the only real speed-up. Detection runs one frame at a time inside DeepFace, and only the
-  embedding step is batched.
+- **Remove black work, not image detail.** Naive unpadded downscaling missed small faces and
+  was rejected. The approved path reproduces DeepFace's padded RetinaFace resize exactly,
+  then removes only grid-aligned black margin while retaining a 32 px halo. A 1080p frame's
+  detector tensor falls from 1820x1024 to 988x576; aligned crops are batch-embedded.
 - **Cosine distance on unit-length embeddings.** DeepFace does not normalise embeddings
   to unit length by default. The pipeline asks for normalised output and checks it.
 - **"Unknown" is a valid answer.** Leaving a face unlabelled is better than naming the
@@ -246,3 +304,69 @@ section, added after M4 and M5, will report how often each happens in this clip.
 The detailed M4 hotspot timings and runtime projections are retained in
 `docs/results/m4-perception-profile.md`; the final full-video runtime and label
 distribution will be added after the owner-approved run.
+
+### M4 black-margin optimization improvement
+
+The production path now removes redundant black detector margin while preserving the
+same resized image pixels, face scale, and RetinaFace feature-grid phase. It then aligns
+the detected faces locally and sends all crops in the group through one Facenet512 batch.
+
+| Measure | Before | Optimized path | Improvement |
+| --- | ---: | ---: | ---: |
+| RetinaFace tensor for a 1920x1080 frame | 1820x1024, 75% black | 988x576, 32 px halo | 69.5% fewer detector pixels |
+| 300-frame cold perception | 815.849 s | 265.390 s | 67.5% lower; 3.1x throughput |
+| Per selected frame | 2.719 s | 0.885 s | 1.834 s saved |
+| Faces detected | 1,262 | 1,265 | 0 lost; 3 real faces added |
+| Full cold clip | 2 h 17 m historical estimate | 33 m 03 s measured | about 1 h 44 m saved |
+| Fully warm 300-frame replay | 2.724 s | 2.707 s | Still zero model/perception work |
+
+All 1,262 baseline faces matched optimized boxes at IoU >= 0.5 (mean 0.956), and their
+embeddings had mean cosine similarity 0.978. Five of 1,262 assignments moved across the
+provisional 0.30 threshold; all were the correct visible Harry or Snape and were within
+0.0188 of the threshold. The threshold remains an M5 decision.
+
+The owner-approved full run then processed all 3,044 frames at stride 1 in 33m03s. It found
+5,353 faces with zero failed frames: 648 received a character label and 4,705 remained
+Unknown at the provisional 0.30 threshold. The output video matches the source frame count,
+resolution, FPS, and duration. The full result, character timelines, spatial summary,
+visual-review findings, validation, and hashes are in
+[the M4 full-run report](docs/results/m4-full-run.md); the preceding comparison evidence
+remains in [the optimization gate](docs/results/m4-retinaface-black-margin-optimization.md).
+
+Harry's low seven-label count was traced to insufficient gallery coverage rather than the
+detector: inspected Harry faces were boxed, but 780 probable Harry detections in a
+full-cache diagnostic remained Unknown. The two baseline Harry references are themselves
+0.372545 apart, above the 0.30 threshold. The owner should add left/right three-quarter and
+profile references before M5 tuning. The detailed evidence, tracker status, and tested
+audio-remux path are in
+[the Harry discrepancy investigation](docs/results/m4-harry-discrepancy-investigation.md).
+
+The owner subsequently added two Harry views and one Hermione view. The incremental gallery
+refresh embedded only those three images. A 12.839 s full-cache replay raised Harry from 7
+to 255 assignments and Hermione from 152 to 174, with all 270 changes moving from Unknown
+to the intended owner and no existing named assignment displaced. Those figures are the
+historical pre-consistency result.
+
+The gallery/video consistency correction then re-embedded all 13 reference photos through
+the optimized video path while reusing all 3,044 video-frame cache entries. The regenerated
+output retains 5,353 rows and 4,435 Unknown results: Harry 266, Hermione 168, McGonagall 34,
+Snape 262, and Ron 188. Seventy-four borderline assignments changed; visual review found
+37 correct named gains, 36 correct labels moving to Unknown, and one incorrect Harry-on-Ron
+label corrected to Unknown. No new wrong-name assignment appeared. Full measurements,
+changed frames, media validation, and current hashes are in
+[the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).
+
+### M6 temporal smoothing and delivery
+
+The cache-backed Harry window at frames 2263–2282 rendered in 0.318 s without smoothing
+and 0.234 s with smoothing, with 20/20 FaceCache hits, no model loading, and no perception.
+Raw assignments contained 6 Harry labels and 14 Unknown labels; smoothing rendered 9 Harry
+labels and 11 Unknown labels while producing byte-identical CSV evidence. Frame 2268 is a
+direct visual example: the isolated raw `Unknown` flicker is carried as Harry by the track.
+Across the whole refreshed clip, however, lifetime majority voting was too sticky and
+reduced named coverage (for example Snape 275 → 60), so smoothing remains opt-in and is not
+enabled by the one-shot runner. The complete evidence, limitations, audio verification,
+then-current artifact hashes, and review paths are in
+[the historical M6 gate report](docs/results/m6-temporal-smoothing-and-audio.md). Current
+unsmoothed artifact hashes are in
+[the gallery/video consistency report](docs/results/m4-gallery-perception-consistency.md).

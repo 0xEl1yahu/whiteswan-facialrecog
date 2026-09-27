@@ -509,6 +509,16 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
 
     monkeypatch.setattr(DeepFace, "build_model", lambda *args, **kwargs: pytest.fail("warm replay built model"))
     monkeypatch.setattr(DeepFace, "represent", lambda *args, **kwargs: pytest.fail("warm replay ran inference"))
+    monkeypatch.setattr(
+        perception,
+        "_get_retinaface",
+        lambda: pytest.fail("warm replay imported RetinaFace"),
+    )
+    monkeypatch.setattr(
+        perception,
+        "build_detector_model",
+        lambda: pytest.fail("warm replay built RetinaFace"),
+    )
     monkeypatch.setattr(perception, "embed_faces", lambda *args: pytest.fail("warm replay embedded frame"))
     monkeypatch.setattr(gallery, "_embed_gallery_photo", lambda *args: pytest.fail("warm replay embedded photo"))
     warm_output = tmp_path / "warm.mp4"
@@ -516,7 +526,17 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
     warm_args = args.copy()
     warm_args[warm_args.index("--output") + 1] = str(warm_output)
     warm_args[warm_args.index("--csv") + 1] = str(warm_csv)
-    warm_args.extend(["--threshold", "0.1"])
+    warm_args.extend(
+        [
+            "--threshold",
+            "0.1",
+            "--smooth",
+            "--iou-min",
+            "0.8",
+            "--track-ttl",
+            "9",
+        ]
+    )
     drawn_names.clear()
 
     assert main(warm_args) == 0
@@ -528,6 +548,88 @@ def test_main_labels_all_faces_logs_csv_and_reuses_cached_perception(
     assert len(warm_rows) == 8
     assert {row["assigned_name"] for row in warm_rows} == {"Unknown"}
     assert [row["nearest_name"] for row in warm_rows] == [row["nearest_name"] for row in rows]
+
+
+def test_smoothing_replays_face_cache_and_keeps_csv_assignments_unsmoothed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = make_config(
+        tmp_path,
+        csv_path=tmp_path / "raw.csv",
+        max_frames=3,
+        batch_size=3,
+    )
+    write_test_video(cfg.input_path, frame_count=3)
+    pin = np.zeros(512, dtype=np.float32)
+    pin[0] = 1.0
+    gallery_data = Gallery(
+        pins=np.stack([pin]),
+        pin_owner=["Harry Potter"],
+        names=["Harry Potter"],
+        meta={},
+    )
+    known = pin.copy()
+    unknown = np.zeros(512, dtype=np.float32)
+    unknown[1] = 1.0
+    embeddings = [known, known, unknown]
+
+    def fake_embed(
+        frames: list[np.ndarray], config: Config
+    ) -> list[list[Face]]:
+        assert len(frames) == 3
+        return [
+            [Face((4, 5, 12, 14), {}, embedding.copy(), 0.95)]
+            for embedding in embeddings
+        ]
+
+    monkeypatch.setattr(perception, "embed_faces", fake_embed)
+    baseline = process_video(cfg, gallery_data)
+    assert baseline.cache_misses == 3
+
+    smoothed_cfg = replace(
+        cfg,
+        output_path=tmp_path / "smoothed.mp4",
+        csv_path=tmp_path / "smoothed.csv",
+        smooth=True,
+        iou_min=0.8,
+        track_ttl=9,
+    )
+    monkeypatch.setattr(
+        perception,
+        "embed_faces",
+        lambda *args: pytest.fail("smoothing replay called perception"),
+    )
+    displayed_names: list[list[str | None]] = []
+    actual_draw = label_video.draw
+
+    def observing_draw(
+        frame: np.ndarray,
+        faces: list[Face],
+        matches: list[label_video.Match],
+        config: Config,
+    ) -> np.ndarray:
+        displayed_names.append([assignment.name for assignment in matches])
+        return actual_draw(frame, faces, matches, config)
+
+    monkeypatch.setattr(video, "draw", observing_draw)
+
+    smoothed = process_video(smoothed_cfg, gallery_data)
+
+    assert smoothed.cache_hits == 3
+    assert smoothed.cache_misses == 0
+    assert displayed_names == [
+        ["Harry Potter"],
+        ["Harry Potter"],
+        ["Harry Potter"],
+    ]
+    assert smoothed.label_distribution == {"Harry Potter": 3}
+    with smoothed_cfg.csv_path.open(newline="") as source:
+        rows = list(csv.DictReader(source))
+    assert [row["assigned_name"] for row in rows] == [
+        "Harry Potter",
+        "Harry Potter",
+        "Unknown",
+    ]
 
 
 @pytest.mark.parametrize("failure", ["missing_input", "missing_refs", "bad_output"])

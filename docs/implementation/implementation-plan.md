@@ -106,9 +106,12 @@ Record exact versions for DeepFace, RetinaFace, TensorFlow, `tf-keras`, OpenCV, 
 
 Add exact setup/test commands and version facts to `README.md` and `AGENTS.md`. Report how M0 enables R1/R2, imports, determinism evidence, model-load/embedding timings, installed versions, and open questions. Stop for owner approval.
 
-- [ ] **Step 7: Commit only if explicitly requested**
+- [x] **Step 7: Commit only if explicitly requested**
 
 If Eli asks for a commit, stage only the M0 files and use `chore: establish reproducible CPU environment`.
+
+History note: the reproducible environment and pinned stack are present in `main` before
+the current checkpoint branch.
 
 ---
 
@@ -184,9 +187,11 @@ Run: `.venv/bin/python -m pytest tests/test_config.py tests/test_perception.py -
 
 Expected: PASS. Report how the boxes advance R1 and Unknown rendering advances R2, plus timings and open questions. Stop for owner approval.
 
-- [ ] **Step 13: Commit only if explicitly requested**
+- [x] **Step 13: Commit only if explicitly requested**
 
 If Eli asks, commit the M1 files as `feat: add single-frame face perception and rendering`.
+
+History note: M1 is commit `c3794c2`.
 
 ---
 
@@ -247,9 +252,11 @@ Run the real gallery twice, proving the second run does not load Facenet512. Add
 
 Report how gallery identity pins advance R2, tests, first/warm/incremental timings, per-character counts, leave-one-out results under both strategies, and D1 for Eli. Stop before M3.
 
-- [ ] **Step 11: Commit only if explicitly requested**
+- [x] **Step 11: Commit only if explicitly requested**
 
 If Eli asks, commit the M2 files as `feat: add incremental reference gallery`.
+
+History note: M2 is commit `f8faf96`.
 
 ---
 
@@ -326,9 +333,11 @@ timing is retained as a conservative comparison with that limitation stated.
 
 Report how per-frame detection and Unknown boxes advance R1, output frame/duration checks, failure behavior, timings, reuse evidence, and D2 batch-size/preview-stride observations. Reaffirm final stride 1. Stop before M4.
 
-- [ ] **Step 13: Commit only if explicitly requested**
+- [x] **Step 13: Commit only if explicitly requested**
 
 If Eli asks, commit the M3 files as `feat: add resumable video face cache`.
+
+History note: M3 is commit `f8c9200`.
 
 ---
 
@@ -441,28 +450,64 @@ The heavy models must remain resident once loaded; an idle gate must not repeate
 measured model-startup cost. Do not implement either optimization path until its tests,
 acceptance criteria, and owner approval are added to this plan.
 
-- [ ] **Step 12: Complete the approved modularization and preflight checkpoint**
+- [x] **Step 12: Complete the approved modularization and preflight checkpoint**
 
 Execute `docs/superpowers/plans/2026-09-26-label-video-modularization.md` through its STOP
 gate. Preserve the CLI, approved data contracts, cache keys/schemas, CSV schema, output
 behavior, lazy model loading, and zero-inference replay. Do not begin the full 3,044-frame
 run until Eli accepts the checkpoint report.
 
-- [ ] **Step 13: Generate and validate the full stride-1 vertical slice**
+Execution note (2026-09-26): the modular package, thin compatibility facade, model-free
+preflight, atomic outputs, cache compatibility, and cold/warm parity were completed and
+merged to `main` in PR #1 before the runtime optimization work began.
 
-Run the approved CLI over all 3,044 frames at stride 1. Verify output frame count, FPS, dimensions, duration tolerance of one frame, CSV schema/row count, cache completion, and end-of-run label distribution. Manually inspect representative crowd, wide, motion, profile, and scene-cut frames for boxes and labels.
+- [x] **Step 13: Generate and validate the full stride-1 vertical slice**
 
-- [ ] **Step 14: Prove zero-inference relabelling**
+First execute the approved exact-resize black-margin optimization plan at
+`docs/superpowers/plans/2026-09-26-retinaface-black-margin-optimization.md`. Its complete
+300-frame comparison against the 1,262-face M3 baseline is a mandatory STOP gate. Eli must
+accept its detection/embedding/identity/runtime evidence before this step continues.
+
+After that approval, run the approved CLI over all 3,044 frames at stride 1. Verify output
+frame count, FPS, dimensions, duration tolerance of one frame, CSV schema/row count, cache
+completion, and end-of-run label distribution. Manually inspect representative crowd,
+wide, motion, profile, and scene-cut frames for boxes and labels.
+
+Execution note (2026-09-26): the optimized run completed all 3,044 frames at stride 1 in
+33m03s, wrote 5,353 evidence rows, and recorded zero failed frames. Output metadata matches
+the source. Named-interval and crowd-frame review, including four visible Ron
+misassignments and the distant-crowd recall limitation, is recorded in
+`docs/results/m4-full-run.md`.
+
+- [x] **Step 14: Prove zero-inference relabelling**
 
 Run again with a different threshold and separate output/CSV paths. Capture logs/tests proving no Facenet512 load, RetinaFace call, or Facenet512 inference occurred and that cached detections/embeddings were reused.
 
-- [ ] **Step 15: Report the M4 STOP gate**
+Execution note (2026-09-26): threshold, gallery, and smoothing replays reported all 3,044
+frames cached, zero frames to infer, `model=0.000s`, and `perception=0.000s`. Integration
+tests fail explicitly if either model or perception is invoked during the warm replay.
+
+Consistency correction (owner-approved 2026-09-27): execute
+`docs/superpowers/plans/2026-09-27-gallery-perception-consistency.md` before M5. Reference
+photos must share the optimized `embed_faces` path with video faces. Gallery cache schema 2
+adds the perception pipeline and detector halo, while the complete video FaceCache remains
+compatible and must replay with zero video inference. Regenerate the unsmoothed video/CSV,
+preserve AAC audio, enumerate and inspect changed threshold decisions, and publish the
+evidence without changing the provisional threshold or normalization.
+
+- [x] **Step 15: Report the M4 STOP gate**
 
 Report how the stride-1 video and Unknown handling satisfy R1/R2, all test results, full/warm timings, output validation, label distribution, visual findings, and open questions. Stop before tuning.
 
-- [ ] **Step 16: Commit only if explicitly requested**
+Execution note (2026-09-26): the gate report is `docs/results/m4-full-run.md`; the owner
+reviewed the Harry discrepancy evidence and subsequently supplied additional references.
+
+- [x] **Step 16: Commit only if explicitly requested**
 
 If Eli asks, commit the M4 files as `feat: complete cached face labelling pipeline`.
+
+Checkpoint note: Eli requested commits and a PR to `main`; the runtime optimization,
+full-run evidence, and tests are committed as a distinct M4 checkpoint in this branch.
 
 ---
 
@@ -528,54 +573,72 @@ If Eli asks, commit source/tests/docs only as `feat: add evidence-based match an
 
 > Do not start this task unless Eli explicitly commands M6 after the M5 gate.
 
+Execution ruling (2026-09-26): Eli explicitly authorized M6 while independently sourcing
+new gallery images. M5/D3 remains open; M6 did not change the provisional threshold or
+normalization. Full-clip evidence kept smoothing opt-in because lifetime voting reduced
+named coverage, while automatic audio restoration was accepted for the one-shot runner.
+
 **Files:**
-- Modify: `label_video.py`
+- Create: `face_labeller/tracking.py`
+- Modify: `face_labeller/video.py`, `label_video.py`, `scripts/run_full_pipeline.sh`
 - Create: `tests/test_tracker.py`
+- Modify: `tests/test_video_integration.py`, `tests/test_run_full_pipeline_script.py`
 - Modify: `README.md`
 
 **Interfaces:**
 - Consumes: per-frame `Face`/`Match` values, `Config.iou_min`, `Config.track_ttl`, and the unsmoothed cached pipeline.
 - Produces: pure `iou(a, b) -> float`; `Tracker.update(frame_idx, faces, matches) -> list[tuple[Face, Match, int]]`; `--smooth` rendering; and documented ffmpeg audio/H.264 delivery commands.
 
-- [ ] **Step 1: Write failing IoU tests**
+- [x] **Step 1: Write failing IoU tests**
 
 Test identical, disjoint, edge-touching, zero-area, and one known-overlap pair with exact expected values.
 
-- [ ] **Step 2: Implement pure IoU and pass tests**
+- [x] **Step 2: Implement pure IoU and pass tests**
 
 Run: `.venv/bin/python -m pytest tests/test_tracker.py -k iou -v`
 
 Expected: PASS.
 
-- [ ] **Step 3: Write failing tracker tests**
+- [x] **Step 3: Write failing tracker tests**
 
 Test deterministic greedy association at/under the IoU boundary, multiple faces, new IDs, expiry after exactly `track_ttl` unseen frames, majority vote, Unknown tie winner, no mutation of input faces/matches, and deterministic track ordering.
 
-- [ ] **Step 4: Implement Tracker and pass tests**
+- [x] **Step 4: Implement Tracker and pass tests**
 
 Run: `.venv/bin/python -m pytest tests/test_tracker.py -v`
 
 Expected: PASS.
 
-- [ ] **Step 5: Integrate smoothing as a downstream cache replay**
+- [x] **Step 5: Integrate smoothing as a downstream cache replay**
 
 Assert with a regression test that toggling `--smooth`, `iou_min`, or `track_ttl` does not change Gallery/FaceCache keys or call models. Preserve unsmoothed CSV evidence unless the spec explicitly requires displayed-name logging.
 
-- [ ] **Step 6: Add and verify ffmpeg delivery commands**
+- [x] **Step 6: Add and verify ffmpeg delivery**
 
-Document commands that combine the labelled video stream with input AAC audio and encode H.264 for browser playback without changing duration/frame cadence. Verify streams and duration with `ffprobe` if available.
+The owner additionally approved automatic audio restoration in the one-shot runner. Stage
+the video and CSV, combine the labelled video with input AAC without re-encoding, verify
+both streams, and publish only after success. Document the separate H.264 browser-delivery
+command. Verify streams and duration with `ffprobe`.
 
-- [ ] **Step 7: Produce before/after evidence and report M6**
+- [x] **Step 7: Produce before/after evidence and report M6**
 
 Render the same short cache-backed clip with and without smoothing, record replay time and visible flicker differences, run the full non-slow suite, and report results. Stop for owner review.
 
-- [ ] **Step 8: Commit only if explicitly requested**
+- [x] **Step 8: Commit only if explicitly requested**
 
 If Eli asks, commit as `feat: add optional temporal smoothing and delivery guidance`.
+
+Checkpoint note: Eli requested commits and a PR to `main`; M6 remains a distinct commit
+from the M4 runtime optimization.
 
 ---
 
 ### Task 7: M7 — Packaging and Reproducibility
+
+> Checkpoint status (2026-09-26): not started as the final delivery gate. This branch is
+> being prepared as a reviewable M4/M6 checkpoint PR. M5/D3 remains unresolved, so M7 must
+> not claim final threshold/normalization decisions even though several verification and
+> documentation prerequisites have already been exercised.
 
 **Files:**
 - Modify: `README.md`

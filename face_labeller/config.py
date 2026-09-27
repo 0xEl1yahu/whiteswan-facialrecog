@@ -21,6 +21,8 @@ DEFAULT_CSV_PATH = Path("output/matches.csv")
 DEFAULT_IOU_MIN = 0.3
 DEFAULT_TRACK_TTL = 15
 DEFAULT_EXPAND_PERCENTAGE = 0  # DeepFace default; part of cache identity.
+DEFAULT_PERCEPTION_PIPELINE = "retinaface_exact_resize_crop_v1"
+DEFAULT_DETECTOR_BLACK_HALO = 32  # RetinaFace's coarsest FPN stride.
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,8 @@ class Config:
     detector_backend: str = DETECTOR_BACKEND
     align: bool = True
     expand_percentage: int = DEFAULT_EXPAND_PERCENTAGE
+    perception_pipeline: str = DEFAULT_PERCEPTION_PIPELINE
+    detector_black_halo: int = DEFAULT_DETECTOR_BLACK_HALO
 
 
 def _positive_int(value: str) -> int:

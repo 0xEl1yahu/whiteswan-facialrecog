@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -23,7 +24,7 @@ from face_labeller.contracts import CHARACTER_NAMES, Gallery, GalleryPhoto
 
 
 GALLERY_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
-GALLERY_CACHE_SCHEMA_VERSION = 1
+GALLERY_CACHE_SCHEMA_VERSION = 2
 
 
 def _gallery_paths(ref_dir: Path) -> dict[str, list[Path]]:
@@ -58,6 +59,8 @@ def _gallery_cache_metadata(cfg: Config, versions: dict[str, str]) -> dict:
         "align": cfg.align,
         "max_faces": 1,
         "expand_percentage": cfg.expand_percentage,
+        "perception_pipeline": cfg.perception_pipeline,
+        "detector_black_halo": cfg.detector_black_halo,
         "l2_normalize": True,
         "versions": dict(sorted(versions.items())),
     }
@@ -73,21 +76,10 @@ def _embed_gallery_photo(path: Path, cfg: Config) -> np.ndarray:
     if image is None:
         raise ValueError("image is unreadable")
 
-    perception.build_models(cfg)
-    results = perception._get_deepface().represent(
-        img_path=image,
-        model_name=cfg.model_name,
-        detector_backend=cfg.detector_backend,
-        enforce_detection=True,
-        align=cfg.align,
-        normalization=cfg.normalization,
-        max_faces=1,
-        l2_normalize=True,
-        expand_percentage=cfg.expand_percentage,
-    )
-    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+    faces_by_image = perception.embed_faces([image], replace(cfg, max_faces=1))
+    if len(faces_by_image) != 1 or len(faces_by_image[0]) != 1:
         raise ValueError("DeepFace returned no usable face")
-    return validated_embedding(results[0].get("embedding"))
+    return validated_embedding(faces_by_image[0][0].embedding)
 
 
 def build_pins(
