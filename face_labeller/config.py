@@ -13,7 +13,7 @@ from face_labeller.contracts import DETECTOR_BACKEND, MODEL_NAME
 # Defaults are approved in docs/design/design-plan.md section 7.
 DEFAULT_STRIDE = 1
 DEFAULT_BATCH_SIZE = 8
-DEFAULT_THRESHOLD = 0.30  # DeepFace Facenet512/cosine default.
+DEFAULT_THRESHOLD = 0.305  # D3 owner decision; see docs/results/m5-threshold-ab.md.
 DEFAULT_PIN_STRATEGY = "all"  # D1 owner decision, 2026-09-26.
 DEFAULT_NORMALIZATION = "base"
 DEFAULT_CACHE_DIR = Path("cache")

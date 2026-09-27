@@ -28,9 +28,8 @@ Read both documents before starting a milestone.
    what was built, test results, timings, open questions. Do not start the next milestone
    until the owner (Eli) approves.
 2. Do not change the data contracts (section 5) or the CLI (section 7) without owner approval.
-3. Do not resolve the remaining OWNER decision D3 (section 12). Respect the decided `all`
-   pin strategy, batch size 8, and final stride of 1; use and flag provisional choices
-   still awaiting a gate.
+3. Respect the recorded owner decisions: `all` pins, batch size 8, final stride 1, and
+   D3's `0.305` threshold with `base` normalization. Flag any choices still awaiting a gate.
 4. No magic numbers. Every tunable lives in config with its source noted in a comment.
 5. "Verify" means check the installed DeepFace source or write a test. Do not assume.
 6. `match`, `cosine_distances`, `draw`, `iou` stay pure: no I/O.
@@ -40,8 +39,8 @@ Read both documents before starting a milestone.
 9. Output must be deterministic and must run on CPU.
 
 ## Priorities
-1. Vertical slice first (M1-M4), provable at every gate. Work runs to M5 then halts;
-   M6 only on the owner's explicit command.
+1. Vertical slice first (M1-M4), provable at every gate. M5/D3 is complete; M6 was
+   explicitly approved. M7 remains the final packaging gate.
 2. Data efficiency: compute detections/embeddings once, cache by their true upstream inputs,
    and replay. Never load models or re-run inference when compatible gallery and frame data
    are cached. Adding a reference image embeds only that image; changing stride computes
@@ -99,13 +98,13 @@ scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream veri
 - `python label_video.py --input ... --output ... --ref-dir ...`
 
 ## Current checkpoint
-- The optimized 3,044-frame M4 stride-1 run is complete and cached; M5 threshold and
-  normalization remain provisional while the owner expands Harry's gallery.
+- The optimized 3,044-frame M4 stride-1 run is complete and cached. M5/D3 selected a
+  `0.305` threshold with `base` normalization on 2026-09-27.
 - M6 was explicitly approved on 2026-09-26. `--smooth` now performs downstream IoU
   tracking without altering raw CSV evidence or cache identity.
 - The one-shot runner restores source AAC audio and verifies both streams before publishing.
-- The current branch is an M4/M6 checkpoint for review. M5/D3 and the final M7 packaging
-  gate remain open; threshold 0.30 and base normalization are still provisional.
+- A full cache-only D3 replay recovered 62 visually confirmed correct labels with no
+  observed new wrong name; the final M7 packaging gate remains open.
 - Preflight reports the exact window, selected indices, cache hits, and frames to infer
   before gallery/model work.
 - Final delivery remains stride 1 and CPU only.

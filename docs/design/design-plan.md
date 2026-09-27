@@ -75,7 +75,8 @@ output/                         labelled video, matches.csv, debug/ (gitignored)
    the system before the next milestone starts. Work runs up to M5; M6 starts only on the
    owner's explicit command, after the slice is verified.
 2. Do not change the data contracts (section 5) or the CLI (section 7) without owner approval.
-3. Do not resolve OWNER decisions (section 12). Use the provisional default and flag it.
+3. Do not resolve OWNER decisions (section 12) on the owner's behalf. Use and document
+   the recorded choices; flag any decision that remains provisional.
 4. Do not hard-code magic numbers. Every tunable goes in config, with its source noted.
 5. Where this spec says "verify", check the behaviour in the installed DeepFace source or with
    a test. Do not assume.
@@ -135,7 +136,8 @@ source, 2026-09-26):
   downloaded once to ~/.deepface/weights/ on first build_model.
 - Embeddings are NOT L2-normalised by default (represent(l2_normalize=False)). Pass
   l2_normalize=True, and still assert unit norm on our side.
-- Default threshold: find_threshold("Facenet512", "cosine") == 0.30.
+- DeepFace library threshold: find_threshold("Facenet512", "cosine") == 0.30. The
+  owner-approved production threshold is 0.305 (D3).
 - find_confidence(distance, model_name, verified, distance_metric) returns 0-100
   (51-100 = same person, 0-49 = different).
 - represent() accepts a list of images. DETECTION IS NOT BATCHED (a Python loop per image);
@@ -340,7 +342,7 @@ playback.
 ```
 python label_video.py --input data/video-source/nimbus.mp4 \
   --output output/nimbus_labelled.mp4 --ref-dir data/reference-images/
-  [--stride 1] [--batch-size 8] [--threshold <default: find_threshold>]
+  [--stride 1] [--batch-size 8] [--threshold <default: 0.305>]
   [--pin-strategy mean|all (default: all)] [--normalization base|Facenet2018]
   [--max-faces N (default: no cap, per R1)] [--start-frame 0] [--max-frames N]
   [--cache-dir cache/] [--no-cache]    # owner-approved 2026-09-26
@@ -501,7 +503,9 @@ D2 Stride / batch size. DECIDED by Eli on 2026-09-26: batch size 8; stride 3 for
    selected detection work. Only the embedding pass is batched because detection loops per
    frame, so stride—not batch size—drives runtime. The CLI default remains stride 1.
 D3 Threshold and normalization, chosen from the M5 evidence.
-   Provisional: 0.30 (library default), base.
+   DECIDED by Eli on 2026-09-27: 0.305, base. The full cached 0.30-to-0.31 review
+   found that 0.305 recovered 62 correct names without accepting the first observed
+   wrong-name transition. See `docs/results/m5-threshold-ab.md`.
 
 ## 13. Known failure modes (document them; don't over-engineer)
 Profile or turned faces; motion blur; low light; small faces in wide shots;
