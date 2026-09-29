@@ -583,7 +583,9 @@ Report how evidence improves R2 without sacrificing Unknown coverage under R1, t
 
 - [x] **Step 10: Commit only if explicitly requested**
 
-If Eli asks, commit source/tests/docs only as `feat: add evidence-based match analysis`; do not commit private images, caches, or generated video.
+At the M5 checkpoint, commit source/tests/docs only as `feat: add evidence-based match analysis`.
+Eli's later handoff decision places the curated gallery in Git; caches and generated video
+remain excluded.
 
 Execution note (2026-09-27): committed as `0d272ab` with the final D3 default and evidence.
 
@@ -655,9 +657,9 @@ from the M4 runtime optimization.
 
 ### Task 7: M7 — Packaging and Reproducibility
 
-> Checkpoint status (updated 2026-09-27): not started as the final delivery gate. M5/D3 is
-> resolved at threshold `0.305` with `base` normalization. M7 still must reconcile and
-> verify the final deliverables before claiming final delivery.
+> Historical checkpoint (2026-09-27): M5/D3 was resolved at threshold `0.305` with
+> `base` normalization. The M7 steps below were subsequently completed and merged to
+> `main` in PR #3. The 2026-09-29 handoff places the curated gallery in Git.
 
 **Files:**
 - Modify: `README.md`
@@ -688,7 +690,10 @@ Programmatically compare input/final-output frame count, FPS, dimensions, and du
 
 - [x] **Step 5: Audit repository cleanliness and exclusions**
 
-Run `git status --short`, `git diff --check`, and `git check-ignore` for the video, reference images, weights if local, caches, debug crops, CSV, and output video. Ensure no private/generated binary is staged or tracked.
+Run `git status --short`, `git diff --check`, and `git check-ignore` for the video, weights
+if local, caches, debug crops, CSV, and output video. Confirm curated reference photos are
+not ignored and only those approved input images are eligible for version control; generated
+media and caches must remain ignored.
 
 - [x] **Step 6: Run the final verification suite**
 
@@ -711,6 +716,6 @@ and `git diff --check`.
 
 - [x] **Step 7: Commit only if explicitly requested**
 
-If Eli asks, create the requested packaging commit without adding any ignored/private artifact.
+If Eli asks, create the requested packaging commit without adding generated media or caches.
 
 Execution note (2026-09-27): Eli explicitly requested the packaging commit and branch push.

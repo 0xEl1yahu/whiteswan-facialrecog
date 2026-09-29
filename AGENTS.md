@@ -40,8 +40,8 @@ Read both documents before starting a milestone.
 9. Output must be deterministic and must run on CPU.
 
 ## Priorities
-1. Vertical slice first (M1-M4), provable at every gate. M5/D3 is complete; M6 was
-   explicitly approved. M7 remains the final packaging gate.
+1. Vertical slice first (M1-M4), provable at every gate. M5/D3, M6, and M7 are
+   complete; final handoff uses the accepted stride-1 pipeline.
 2. Data efficiency: compute detections/embeddings once, cache by their true upstream inputs,
    and replay. Never load models or re-run inference when compatible gallery and frame data
    are cached. Adding a reference image embeds only that image; changing stride computes
@@ -68,7 +68,7 @@ face_labeller/video.py       video preflight, frame plan, and streaming executio
 face_labeller/core.py        single end-to-end run coordinator
 tests/                       tests patch the module that owns each behavior
 data/video-source/nimbus.mp4 input clip, Philosopher's Stone (gitignored)
-data/reference-images/<Name>/ owner-curated gallery (gitignored; owner supplies before M2)
+data/reference-images/<Name>/ owner-curated gallery (tracked in Git)
 cache/                       keyed gallery caches (one embedding/photo) + FaceCache (gitignored)
 output/                      labelled video, matches.csv, debug crops (gitignored)
 scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream verification
@@ -100,6 +100,13 @@ scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream veri
 - `.venv/bin/python -m pytest -m slow` for integration tests.
 - `python label_video.py --input ... --output ... --ref-dir ...`
 
+For handoff, follow the exact commands in [README Usage](README.md#usage): a 30-frame
+stride-3 dry run at frames 190–219, a 300-frame stride-1 test run over frames 0–299,
+then `./scripts/run_full_pipeline.sh` at stride 1. On the project MacBook Air M4, the
+fresh-cache dry run took 1m05s and the test continuation took 6m27s. The historical
+full-clip cold benchmark was 33m03s; an all-cached replay took 24.989s. Install/download
+time is separate. Share one `cache/` so later runs reuse the prior detections.
+
 ## Current checkpoint
 - The optimized 3,044-frame M4 stride-1 run is complete and cached. M5/D3 selected a
   `0.305` threshold with `base` normalization on 2026-09-27.
@@ -120,4 +127,5 @@ scripts/run_full_pipeline.sh one-shot setup, run, audio restore, and stream veri
   report both results.
 - Give each milestone commit a plain-language one-line summary that a non-technical
   stakeholder can understand.
-- Never commit video files, reference photos or model weights.
+- Keep the owner-curated reference gallery tracked in Git. Never commit source video,
+  generated outputs, caches, or model weights.

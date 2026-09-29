@@ -1,6 +1,6 @@
-# Inputs (owner-supplied, never committed)
-data/reference-images
-data/video-source
+# Owner-curated reference photos are intentionally versioned.
+# Source video stays local; the runner downloads it when absent.
+data/video-source/
 
 # Generated
 cache/

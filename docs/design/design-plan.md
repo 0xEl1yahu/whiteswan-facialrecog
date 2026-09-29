@@ -66,7 +66,7 @@ label_video.py                  executable and compatibility facade
 face_labeller/                  focused pipeline modules and execution core
 tests/                          pytest suite (unit + slow integration)
 data/video-source/nimbus.mp4    input clip            (gitignored)
-data/reference-images/<Name>/   owner-curated gallery (gitignored)
+data/reference-images/<Name>/   owner-curated gallery (tracked handoff input)
 cache/                          keyed gallery + per-frame embedding caches (gitignored)
 output/                         labelled video, matches.csv, debug/ (gitignored)
 ```

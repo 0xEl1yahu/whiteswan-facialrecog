@@ -9,8 +9,7 @@ Built for the White Swan Data ML assessment. The stack is set by the brief: Pyth
 [DeepFace](https://github.com/serengil/deepface), RetinaFace detection, Facenet512
 embeddings, cosine distance. Everything runs on CPU.
 
-> **Status: M0–M7 implementation and verification are complete on the feature branch;
-> commit/PR integration remains.**
+> **Status: M0–M7 implementation and verification are complete on `main`.**
 > [Current project status](docs/STATUS.md) records the active decisions and accepted
 > artifact hashes. The normative spec is [docs/design/design-plan.md](docs/design/design-plan.md),
 > and the only live checklist is
@@ -83,18 +82,23 @@ first use.
 
 ## Data
 
-Neither the video nor the reference photos are committed.
+The owner-curated reference gallery is tracked in Git for handoff. The source video,
+model weights, caches, and generated outputs stay out of Git.
 
 **Video**
 ```bash
 mkdir -p data/video-source
-gdown 1CM1IWUN59ZWml9MwgrvSHXz_9AirIiuU -O data/video-source/nimbus.mp4
+.venv/bin/python -m gdown 1CM1IWUN59ZWml9MwgrvSHXz_9AirIiuU -O data/video-source/nimbus.mp4
 ```
 The clip is 1920×1080, 29.97 fps, 3,044 frames (about 101.6 s), with AAC audio.
 
 **Reference photos**
 
-Photos are chosen by hand. Nothing in this repo scrapes or downloads face images.
+Photos are chosen by hand under `data/reference-images/`. A fresh checkout includes the
+17 photos used for the accepted result. The
+[source note](data/reference-images/REFERENCE_SOURCES.md) records the original examples;
+later additions are not fully sourced there. Nothing in this repo scrapes or downloads
+face images.
 ```
 data/reference-images/
   Harry Potter/        *.jpg | *.jpeg | *.png
@@ -103,10 +107,12 @@ data/reference-images/
   Prof. McGonagall/
   Prof. Severus Snape/
 ```
-The folder name is the label. Start with at least two valid photos per character and add
-more incrementally, growing toward 5–10 clear, varied photos from *Philosopher's Stone* so
-the actors are the same age as in the clip. A photo with no detectable face is skipped with
-a warning. Fewer than two usable photos for any required character stops the run.
+The folder name is the label. The pipeline reads `.jpg`, `.jpeg`, and `.png` files; other
+image formats in those folders are not used. Keep at least two valid photos per character
+and add more incrementally, growing toward 5–10 clear, varied photos from
+*Philosopher's Stone* so the actors are the same age as in the clip. A supported photo
+with no detectable face is skipped with a warning. Fewer than two usable photos for any
+required character stops the run.
 
 Gallery embeddings are stored in `cache/gallery_<key>.npz`, one record per photo. Schema 2
 keys the model, normalization/alignment settings, optimized perception-pipeline name,
@@ -123,8 +129,8 @@ changes never invalidate compatible cached video detections or embeddings.
 
 ## Usage
 
-For a fresh macOS/Linux checkout, place at least two owner-curated reference photos in each
-required character folder, then run the complete setup and full stride-1 pipeline with:
+For a fresh macOS/Linux checkout, install Python 3.11 and `ffmpeg` (which includes
+`ffprobe`), then run the complete setup and full stride-1 pipeline with:
 
 ```bash
 ./scripts/run_full_pipeline.sh
@@ -132,24 +138,81 @@ required character folder, then run the complete setup and full stride-1 pipelin
 
 The launcher locates the repository root, requires Python 3.11, creates `.venv`, installs
 the pinned dependencies, downloads the fixed Nimbus source video if it is absent, validates
-the five reference folders, and runs the approved CPU-only command. `ffmpeg` and `ffprobe`
-must be available on `PATH`: the launcher restores the source AAC track, verifies that the
-staged result has video and audio streams, and only then publishes the video and CSV. A
-failed pipeline or remux preserves the previously published artifacts. It is safe to rerun:
+the five reference folders already in the checkout, and runs the approved CPU-only command.
+`ffmpeg` and `ffprobe` must be available on `PATH`: the launcher restores the source AAC
+track, verifies that the staged result has video and audio streams, and only then publishes
+the video and CSV. A failed pipeline or remux preserves the previously published artifacts.
+It is safe to rerun:
 the existing environment, source video, gallery cache, and FaceCache are reused. Reference
-photos are never downloaded. Set `PYTHON_BIN=/path/to/python3.11` only when Python 3.11 is
-not available as `python3.11` on `PATH`.
+photos are never downloaded by the runner. Set `PYTHON_BIN=/path/to/python3.11` only when
+Python 3.11 is not available as `python3.11` on `PATH`.
 
-The manual equivalent is below.
+### Dry run: 30 output frames
 
-Run the labelling pipeline:
+After [setup](#setup) and the [video download](#data), use this to check the gallery,
+CLI, detection, labels, and CSV without processing the full clip. It writes one second of
+video starting at frame 190, where Snape appears, and attempts detection on 10 selected
+frames. The other 20 frames reuse the latest boxes, so this is a smoke check rather than
+the final R1 result. The direct CLI writes video without source audio.
+
 ```bash
-python label_video.py \
+.venv/bin/python label_video.py \
   --input data/video-source/nimbus.mp4 \
-  --output output/nimbus_labelled.mp4 \
-  --ref-dir data/reference-images/
+  --output output/dry-run.mp4 \
+  --ref-dir data/reference-images \
+  --start-frame 190 --max-frames 30 --stride 3 \
+  --batch-size 8 --cache-dir cache \
+  --csv output/dry-run.csv
 ```
-Run `python label_video.py --help` to see every option and where each default comes from.
+
+### Test run: 300 output frames
+
+This processes the first 10 seconds at stride 1. It attempts detection on every frame in
+that window, reusing the dry run's 10 cached results and computing the 290 missing frame
+indices. This is a video pipeline check, separate from the automated tests below. Check
+`output/test-run.mp4` and `output/test-run.csv` before starting the full run.
+
+```bash
+.venv/bin/python label_video.py \
+  --input data/video-source/nimbus.mp4 \
+  --output output/test-run.mp4 \
+  --ref-dir data/reference-images \
+  --max-frames 300 --stride 1 \
+  --batch-size 8 --cache-dir cache \
+  --csv output/test-run.csv
+```
+
+### Full handoff run: 3,044 output frames
+
+Run `./scripts/run_full_pipeline.sh`. It uses stride 1 and the same `cache/`, so the 300
+test frames are reused. It publishes `output/nimbus_labelled.mp4` with copied AAC audio
+and `output/matches.csv` after verifying both streams. This is the final R1/R2 run.
+The script installs the pinned requirements each time; the processing times below exclude
+dependency installation, video download, and first-time model-weight download.
+
+### CPU timings and benchmark
+
+These are elapsed measurements on an Apple MacBook Air M4. The dry and test rows were
+measured on 2026-09-29 with the current 17-photo gallery and a separate fresh cache. The
+full-clip rows are the recorded M4 cold benchmark and accepted M5 cached replay. CPU speed,
+scene density, and cache state change runtime; budget additional time for dependency,
+source-video, and model-weight downloads on a fresh machine.
+
+| Run | Frames written / inferred | Cache state | Measured time |
+| --- | ---: | --- | ---: |
+| Dry run, frames 190–219, stride 3 | 30 / 10 | Fresh gallery and frame cache | 1m05s (64.58s) |
+| Test run, frames 0–299, stride 1 | 300 / 290 | Reused the dry run's 10 frames | 6m27s (387.32s) |
+| Full benchmark, stride 1 | 3,044 / 3,044 | Historical cold frame run; gallery cached | 33m03s (1,983.09s) |
+| Full accepted replay, stride 1 | 3,044 / 0 | All 3,044 frames cached | 24.989s pipeline render |
+
+The dry run produced 237 face rows; the test run produced 1,265. The full cold benchmark
+used the earlier two-photo-per-character gallery; video detection is independent of gallery
+size. The accepted `0.305` replay with the current gallery retained 5,353 face rows. The
+full-run shell script also installs requirements and remuxes AAC, so its total wall time
+will exceed the pipeline figures in the table. Running dry → test → full with the same
+`cache/` reuses completed inference at each step.
+
+Run `.venv/bin/python label_video.py --help` to see every option and its default source.
 Useful options:
 - `--start-frame` and `--max-frames` run on a short window.
 - `--stride 3` gives a quick engineering smoke test. Use `--stride 2` for review previews:
@@ -166,7 +229,7 @@ Useful options:
   names only; detection, embeddings, and the raw CSV assignments remain unchanged.
 
 Outputs go to `output/` (the video, `matches.csv`, and optional debug crops). Caches go to
-`cache/`. Both folders are gitignored.
+`cache/`. Both folders remain gitignored; the reference gallery is tracked.
 The CSV writes one row for each displayed face on each output frame, with frame and face
 indices, box, detection confidence, nearest pin owner and distance, threshold, assigned
 name, and match confidence. Rejected matches display `Unknown` while retaining the
@@ -180,12 +243,11 @@ tracking, or pin-strategy change relabel the video without running the models.
 
 The Python/OpenCV writer produces video only. The one-shot launcher automatically copies
 the source AAC audio into that labelled stream without re-encoding either stream. For a
-browser-oriented H.264 deliverable, keep the direct CLI output at a separate path and run:
+browser-oriented H.264 copy of the accepted output, run:
 
 ```bash
-ffmpeg -i output/nimbus_labelled.video-only.mp4 \
-  -i data/video-source/nimbus.mp4 \
-  -map 0:v:0 -map 1:a:0 -c:v libx264 -preset medium -crf 18 \
+ffmpeg -i output/nimbus_labelled.mp4 \
+  -map 0:v:0 -map 0:a:0 -c:v libx264 -preset medium -crf 18 \
   -pix_fmt yuv420p -c:a copy -shortest output/nimbus_labelled.h264.mp4
 
 ffprobe -v error \
@@ -267,11 +329,11 @@ Each milestone ends with a stop for the owner to test and review.
 | M4 | Names and `matches.csv`. **First complete working version, checked here.** | |
 | M5 | Tuning evidence: distance histograms, near-threshold crops | D3: `0.305`, `base` selected 2026-09-27 |
 | M6 | Optional temporal smoothing, automatic audio restoration, H.264 guidance | Owner approved 2026-09-26 |
-| M7 | Packaging | Verified; requested commit/PR remain |
+| M7 | Packaging | Verified and merged to `main` in PR #3 |
 
-This branch applies the completed M5/D3 decision after the M4/M6 checkpoint. Threshold
-`0.305` and `base` normalization are the production defaults, and M7 verification is
-complete. Integration remains a separate owner-requested action.
+Threshold `0.305` and `base` normalization are the production defaults. The accepted
+stride-1 output was verified before the M7 merge; the owner's later handoff decision placed
+the gallery in the repository.
 
 ## Tests
 
@@ -300,7 +362,7 @@ complete. Integration remains a separate owner-requested action.
 
 Profile or turned faces, motion blur, low light, small faces in wide shots, faces partly
 covered by hair, hats or hands, and extras who resemble a lead character. The results
-section, added after M4 and M5, will report how often each happens in this clip.
+below and the linked M4/M5 reports document the observed effects in this clip.
 
 ## Results
 
